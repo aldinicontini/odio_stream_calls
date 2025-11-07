@@ -31,7 +31,6 @@ def get_ssl_context(cert_path=None):
         return ssl_context
     return ssl._create_unverified_context()
 
-
 async def ws_connection(url=WSS_ODIO_URL, cert_path=SSL_CERT_PATH):
     """
     Intenta conectarse al WebSocket y retorna el objeto de conexión (stream)
@@ -46,7 +45,6 @@ async def ws_connection(url=WSS_ODIO_URL, cert_path=SSL_CERT_PATH):
     except Exception as e:
         logging.error(f"❌ Falló la conexión WebSocket: {e}")
         return None
-
 
 async def ws_send_test_message(ws, message="ping"):
     """

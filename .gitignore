@@ -1,0 +1,13 @@
+# Entorno virtual
+venv/
+.venv/
+
+# Variables de entorno
+.env
+
+# Archivos temporales o compilados
+__pycache__/
+*.pyc
+.vscode/
+*.mp3
+*.wav

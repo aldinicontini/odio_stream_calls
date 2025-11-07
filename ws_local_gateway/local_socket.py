@@ -103,7 +103,6 @@ async def ensure_single_instance():
 # ============================================================
 # SERVIDOR LOCAL
 # ============================================================
-
 async def handle_local_connection(reader, ws):
     """Recibe datos de un cliente local y los reenvía al WSS."""
     try:
