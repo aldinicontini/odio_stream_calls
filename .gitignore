@@ -7,7 +7,7 @@ venv/
 
 # Archivos temporales o compilados
 __pycache__/
-*.pyc
 .vscode/
+*.pyc
 *.mp3
 *.wav
