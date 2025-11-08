@@ -59,9 +59,8 @@ async def main(audio_file, direction, test = False):
         await asyncio.sleep(1)
 
     # Conectar al WebSocket
-    # async with websockets.connect(WSS_ODIO_URL, ssl=get_ssl_context(SSL_CERT_PATH), ping_interval=10, ping_timeout=5) as ws:
     ws = await ws_connection()
-    keepalive_task = asyncio.create_task(ws_keepalive(ws))
+    # keepalive_task = asyncio.create_task(ws_keepalive(ws))
 
     if not ws or ws.state == 3:
         logging.error("Cannot connect to WebSocket.")
@@ -129,7 +128,7 @@ async def main(audio_file, direction, test = False):
     # Enviar evento Stop al terminar
     await send_stop_event(ws, CALL_ID)
     
-    keepalive_task.cancel()
+    # keepalive_task.cancel()
     await ws.close()
     logging.info("Conexión WebSocket cerrada correctamente.")
 
