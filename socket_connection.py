@@ -39,7 +39,7 @@ async def ws_connection(url=WSS_ODIO_URL, cert_path=SSL_CERT_PATH):
     ssl_context = get_ssl_context(cert_path)
     try:
         logging.info(f"Intentando conectar a {url} ...")
-        ws = await websockets.connect(url, ssl=ssl_context, max_size=None)
+        ws = await websockets.connect(url, ssl=ssl_context, max_size=None, ping_interval=None, ping_timeout=None)
         logging.info(f"Conexión establecida correctamente.")
         return ws
     except Exception as e:
@@ -69,26 +69,11 @@ async def ws_keepalive(ws, interval=PING_INTERVAL):
     try:
         while True:
             logging.debug(f"Durmiendo {interval} segundos antes del ping")
-            await asyncio.sleep(float(interval))  # fuerza conversión a número
+            await asyncio.sleep(float(interval))
             pong_waiter = await ws.ping()
             await pong_waiter
             logging.info("[DEBUG] Ping enviado y pong recibido")
     except asyncio.CancelledError:
         logging.info("Keepalive cancelled")
     except Exception as e:
-        logging.exception(f"Keepalive interrumpido: {e}")
-
-async def listen_messages(ws):
-    try:
-        async for message in ws:
-            logging.info(f"[WS] Mensaje recibido: {message}")
-            # Si el mensaje está en formato JSON:
-            try:
-                data = json.loads(message)
-                logging.debug(f"[WS JSON] {data}")
-            except json.JSONDecodeError:
-                logging.debug("[WS] Mensaje no es JSON, contenido crudo recibido")
-    except websockets.ConnectionClosed as e:
-        logging.warning(f"Conexión cerrada por el servidor: {e.code} {e.reason}")
-    except Exception as e:
-        logging.error(f"Error leyendo mensajes del WebSocket: {e}")
+        logging.error(f"Keepalive interrumpido: {e}")
