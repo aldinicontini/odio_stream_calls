@@ -17,11 +17,12 @@ else
     exit 1
 fi
 
-source "$PATH_PROJECT/bin/activate"
+source "$PATH_PROJECT/venv/bin/activate"
 
 # Run the Python script with the correct arguments
 # The --test flag is passed only if provided
-python "$PATH_PROJECT/stream_socket.py" "$AUDIOFILE" "$DIRECTION" $TEST_FLAG
+#echo "python3 "$PATH_PROJECT/stream_socket.py" "$AUDIOFILE" "$DIRECTION" $TEST_FLAG"
+python3 "$PATH_PROJECT/stream_socket.py" "$AUDIOFILE" "$DIRECTION" $TEST_FLAG
 
 # finish
 deactivate
