@@ -41,8 +41,8 @@ From the command line
 --test (optional): Run the script in test mode
 
 Examples:
-./run_stream.sh ClearNexus-1762560249.55706-in.wav
-./run_stream.sh ClearNexus-1762560249.55706-out.wav --test
+./run_stream.sh 1762560249.55706-in.wav
+./run_stream.sh 1762560249.55706-out.wav --test
 
 From Asterisk
 In your dialplan, you can call the Bash wrapper like:
@@ -52,11 +52,15 @@ exten => s,n,System(/root/odio_stream_calls/run_stream.sh ${AUDIOFILE} --test)
 
 
 The script will automatically detect the call direction and stream the audio.
+
 How It Works
 The Bash script detects if the call is inbound or outbound based on the file suffix.
+
 Activates the Python virtual environment.
 Runs stream_socket.py with the audio file, direction, and optional --test flag.
+
 Deactivates the virtual environment.
+
 Notes
 Only .wav files ending with -in.wav or -out.wav are supported.
 Ensure the virtual environment is correctly set up with all required dependencies.
