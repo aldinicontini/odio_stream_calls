@@ -3,9 +3,11 @@ import argparse
 import time
 import wave
 import os
+from datetime import datetime
 
 from socket_connection import ws_connection, ws_keepalive
 from odio_socket import send_connected_event, send_start_event, send_stop_event, send_media_event
+from custom_information import get_customer_information
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,7 +26,7 @@ logging = init_debugger(LOG_FILE_CONNECTIONS)
 WSS_ODIO_URL = os.getenv('WSS_ODIO_URL')
 SSL_CERT_PATH = os.getenv('SSL_CERT_PATH') or None
 CHUNK_SIZE = int(os.getenv('CHUNK_SIZE'))  # 20ms de audio PCM 16-bit a 8kHz
-INACTIVITY_TIMEOUT = os.getenv('INACTIVITY_TIMEOUT') # segundos sin nuevos bytes
+INACTIVITY_TIMEOUT = int(os.getenv('INACTIVITY_TIMEOUT')) # segundos sin nuevos bytes
                                  
 last_chunk_time = time.time()
 
@@ -36,27 +38,27 @@ SAMPLE_WIDTH = int(os.getenv('SAMPLE_WIDTH')) # bytes (16-bit PCM)
 CHANNELS = int(os.getenv('CHANNELS')) # mono
 TEST_OUTPUT_FILE = os.getenv('TEST_OUTPUT_FILE')
 
-CALL_ID = "ABC12345"
-customer_information = {
-    "clientName": "Clear Nexus",
-    "clientExternalId": 50763012,
-    "coeName": "New York",
-    "coeExternalId": 68715092,
-    "agentName": "Tim Johnson",
-    "agentExternalId": 83862713,
-    "customerName": "John wick",
-    "customerPhoneNumber": 9876776321,
-    "momentBucketId": 157
-}
-
 async def main(audio_file, direction, test = False):
-    try_number = 1
+    customer_information = get_customer_information(audio_file)
 
-    # Espera hasta que el archivo exista
+    if not customer_information:
+        logging.error(f"Customer information not found for customer: {audio_file}")
+        return
+
+    audio_file = getRecordingPath(customer_information, audio_file)
+    
+    try_number = 1
     while not os.path.exists(audio_file):
+        if try_number > 20:
+            logging.warning(f"Timeout alcanzado ({TIMEOUT}s), archivo no encontrado: {audio_file}")
+        break
+
         logging.info(f"Waiting for audio file: {audio_file} ... try {try_number}")
         try_number += 1
         await asyncio.sleep(1)
+
+    filename = os.path.basename(audio_file)
+    CALL_ID = filename.replace("-in.wav", "").replace("-out.wav", "")
 
     # Conectar al WebSocket
     ws = await ws_connection()
@@ -80,6 +82,8 @@ async def main(audio_file, direction, test = False):
 
     if not test:
         try:
+            last_chunk_time = time.time()
+            # wf = init_wave_file(TEST_OUTPUT_FILE)
             with open(audio_file, "rb", buffering=0) as audio_pipe:
                 audio_pipe.seek(0, os.SEEK_END)
                 logging.info("Iniciando lectura en vivo de %s", audio_file)
@@ -87,14 +91,20 @@ async def main(audio_file, direction, test = False):
                 while True:
                     chunk = audio_pipe.read(CHUNK_SIZE)
                     if not chunk:
+                        # logging.info("Archivo inactivo.")
                         if time.time() - last_chunk_time > INACTIVITY_TIMEOUT:
-                            logging.info("Archivo inactivo, se asume fin de grabación.")
+                            logging.info("Archivo inactivo por 5 segundos, se asume fin de grabación.")
                             break
                         await asyncio.sleep(FRAME_DURATION)
                         continue
 
-                    await send_media_event(ws, direction, sequence, chunk)
+                    await send_media_event(ws, CALL_ID, direction, sequence, round(time_elapsed, 3), chunk)
+                    # Escribe localmente para validar
+                    # wf.writeframes(chunk)
                     sequence += 1
+
+                    time_elapsed += FRAME_DURATION
+                    last_chunk_time = time.time()
 
                     # Ritmo real aproximado de envío
                     await asyncio.sleep(FRAME_DURATION)
@@ -132,6 +142,23 @@ async def main(audio_file, direction, test = False):
     await ws.close()
     logging.info("Conexión WebSocket cerrada correctamente.")
 
+def getRecordingPath(customer_information, audio_file):
+    event_date = customer_information.get("event_date")
+    if not event_date:
+        logging.error(f"Error getting the date")
+        return
+
+    try:
+        dt = datetime.strptime(event_date, "%Y-%m-%d")
+        monitor_dir = f"/var/spool/asterisk/monitor/{dt.year}/{dt.month:02d}/{dt.day:02d}"
+    except ValueError:
+        logging.error(f"invalid date formatt {event_date}")
+        return
+    
+    full_audio_path = os.path.join(monitor_dir, audio_file)
+    logging.info(f"Full monitor path: {full_audio_path}")
+
+    return full_audio_path
 
 def init_wave_file(filename):
     """Inicializa un WAV file para escritura."""
@@ -141,18 +168,28 @@ def init_wave_file(filename):
     wf.setframerate(SAMPLE_RATE)
     return wf
 
+async def run_both(audio_file, test_flag):
+    # Crea las rutas completas
+    audio_in = f"{audio_file}-in.wav"
+    audio_out = f"{audio_file}-out.wav"
+
+    # print(f"{audio_in}, {audio_out}")
+    await asyncio.gather(
+        main(audio_in, "inbound", test_flag),
+        main(audio_out, "outbound", test_flag)
+    )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("audio_file", help="Ruta del archivo de audio")
-    parser.add_argument("direction", help="Dirección de la llamada (inbound/outbound)")
-    parser.add_argument("--test", action="store_true", help="Leer archivo mientras se escribe (modo live)")
+    parser.add_argument("audio_file", help="Ruta base del archivo de audio (sin -in/out)")
+    parser.add_argument("--test", action="store_true", help="Modo live")
 
     args = parser.parse_args()
 
     try:
-        asyncio.run(main(args.audio_file, args.direction, args.test))
+        asyncio.run(run_both(args.audio_file, args.test))
     except KeyboardInterrupt:
-        print("[INFO] Proxy finalizado por usuario")
+        print("[INFO] Finalizado por usuario")
     except Exception as e:
-        print(f"[ERROR] Proxy interrumpido: {e}")
+        print(f"[ERROR] Interrumpido: {e}")
