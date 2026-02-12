@@ -39,10 +39,11 @@ CHANNELS = int(os.getenv('CHANNELS')) # mono
 TEST_OUTPUT_FILE = os.getenv('TEST_OUTPUT_FILE')
 
 async def main(audio_file, direction, test = False):
+    CALL_ID = audio_file.replace("-in.wav", "").replace("-out.wav", "")
     customer_information = get_customer_information(audio_file)
 
     if not customer_information:
-        logging.error(f"Customer information not found for customer: {audio_file}")
+        logging.error(f"{CALL_ID} - Customer information not found for customer: {audio_file}")
         return
 
     audio_file = getRecordingPath(customer_information, audio_file)
@@ -50,15 +51,15 @@ async def main(audio_file, direction, test = False):
     try_number = 1
     while not os.path.exists(audio_file):
         if try_number > 20:
-            logging.warning(f"Timeout alcanzado ({TIMEOUT}s), archivo no encontrado: {audio_file}")
+            logging.warning(f"{CALL_ID} - Timeout alcanzado ({TIMEOUT}s), archivo no encontrado: {audio_file}")
         break
 
-        logging.info(f"Waiting for audio file: {audio_file} ... try {try_number}")
+        logging.info(f"{CALL_ID} - Waiting for audio file: {audio_file} ... try {try_number}")
         try_number += 1
         await asyncio.sleep(1)
 
     filename = os.path.basename(audio_file)
-    CALL_ID = filename.replace("-in.wav", "").replace("-out.wav", "")
+    
 
     # Conectar al WebSocket
     ws = await ws_connection()
@@ -86,14 +87,14 @@ async def main(audio_file, direction, test = False):
             # wf = init_wave_file(TEST_OUTPUT_FILE)
             with open(audio_file, "rb", buffering=0) as audio_pipe:
                 audio_pipe.seek(0, os.SEEK_END)
-                logging.info("Iniciando lectura en vivo de %s", audio_file)
+                logging.info(f"{CALL_ID} - Iniciando lectura en vivo de {audio_file}")
 
                 while True:
                     chunk = audio_pipe.read(CHUNK_SIZE)
                     if not chunk:
                         # logging.info("Archivo inactivo.")
                         if time.time() - last_chunk_time > INACTIVITY_TIMEOUT:
-                            logging.info("Archivo inactivo por 5 segundos, se asume fin de grabación.")
+                            logging.info(f"{CALL_ID} -Archivo inactivo por 5 segundos, se asume fin de grabación.")
                             break
                         await asyncio.sleep(FRAME_DURATION)
                         continue
@@ -109,7 +110,7 @@ async def main(audio_file, direction, test = False):
                     # Ritmo real aproximado de envío
                     await asyncio.sleep(FRAME_DURATION)
         except Exception as e:
-            logging.error(f"Error en transmisión: {e}")
+            logging.error(f"{CALL_ID} - Error en transmisión: {e}")
     else:
         try:
             # wf = init_wave_file(TEST_OUTPUT_FILE)
