@@ -67,9 +67,9 @@ async def send_media_event(ws, CALL_ID, DIRECTION, sequence, time_elapsed, chunk
 
     try:
         await ws.send(encoded)
-        logging.info(f"Media Event send: {encoded}")
+        #logging.info(f"Media Event send: {encoded}")
     except Exception as e:
-        logging.error(f"Error while trying to send media event: {encoded}")
+        #logging.error(f"Error while trying to send media event: {encoded}")
 
 async def send_stop_event(ws, CALL_ID):
     stop_event = {
@@ -80,9 +80,9 @@ async def send_stop_event(ws, CALL_ID):
 
     try:
         await ws.send(encoded)
-        logging.info(f"Stop Event send: {encoded}")
+        #logging.info(f"Stop Event send: {encoded}")
     except Exception as e:
-        logging.error(f"Error while trying to send stop event: {encoded}")
+        #logging.error(f"Error while trying to send stop event: {encoded}")
 
 
 async def wait_fot_ack(ws):
