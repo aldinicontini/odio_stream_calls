@@ -62,9 +62,10 @@ def init_wave_file(filename):
     return wf
 
 
-async def stream_audio(ws, audio_file, direction, CALL_ID, test=False):
-    """Stream a single audio direction (inbound or outbound) over a shared WebSocket."""
-    sequence = 0
+async def stream_audio(ws, audio_file, direction, CALL_ID, sequence_counter, sequence_lock, test=False):
+    """Stream a single audio direction (inbound or outbound) over a shared WebSocket ]
+    """
+    chunk_number = 0 
     time_elapsed = 0.0
 
     #Sample Rate: 8000 Hz
@@ -90,8 +91,15 @@ async def stream_audio(ws, audio_file, direction, CALL_ID, test=False):
                         await asyncio.sleep(FRAME_DURATION)
                         continue
 
+                    
+                    async with sequence_lock:
+                        sequence = sequence_counter[0]
+                        sequence_counter[0] += 1
+
+                    chunk_number += 1
+                    logging.debug(f"{CALL_ID} - [{direction}] Sequence Number: {sequence}, Chunk: {chunk_number}")
+
                     await send_media_event(ws, CALL_ID, direction, sequence, round(time_elapsed, 3), chunk)
-                    sequence += 1
                     time_elapsed += FRAME_DURATION
                     last_chunk_time = time.time()
                     await asyncio.sleep(FRAME_DURATION)
@@ -108,8 +116,15 @@ async def stream_audio(ws, audio_file, direction, CALL_ID, test=False):
                     if not chunk:
                         break
 
+                    
+                    async with sequence_lock:
+                        sequence = sequence_counter[0]
+                        sequence_counter[0] += 1
+
+                    chunk_number += 1
+                    logging.debug(f"{CALL_ID} - [{direction}] Sequence Number: {sequence}, Chunk: {chunk_number}")
+
                     await send_media_event(ws, CALL_ID, direction, sequence, round(time_elapsed, 3), chunk)
-                    sequence += 1
                     time_elapsed += FRAME_DURATION
                     await asyncio.sleep(FRAME_DURATION)
 
@@ -154,10 +169,13 @@ async def run_both(audio_file, test_flag):
         logging.error(f"{CALL_ID} - Failed to send start event.")
         return
 
+    sequence_counter = [0]          # lista mutable: sequence_counter[0] es el valor actual
+    sequence_lock = asyncio.Lock()  # garantiza acceso exclusivo al incremento
+
     # Stream both directions concurrently over the same socket
     await asyncio.gather(
-        stream_audio(ws, audio_in_path,  "inbound",  CALL_ID, test_flag),
-        stream_audio(ws, audio_out_path, "outbound", CALL_ID, test_flag),
+        stream_audio(ws, audio_in_path,  "inbound",  CALL_ID, sequence_counter, sequence_lock, test_flag),
+        stream_audio(ws, audio_out_path, "outbound", CALL_ID, sequence_counter, sequence_lock, test_flag),
     )
 
     # Single stop event after both streams complete
