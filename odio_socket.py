@@ -52,10 +52,10 @@ async def send_start_event(ws, CALL_ID, custom_parameters):
         }
     }
     encoded = json.dumps(start_event)
+    logging.info(f"Start Event send: {encoded}")
 
     try:
         await ws.send(encoded)
-        logging.info(f"Start Event send: {encoded}")
 
         try:
             return await wait_fot_ack(ws)

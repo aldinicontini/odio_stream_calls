@@ -140,6 +140,8 @@ async def run_both(audio_file, test_flag):
     audio_out_name = f"{audio_file}-out.wav"
 
     customer_information = get_customer_information(audio_in_name)
+    logging.info(f"{CALL_ID} - running both funcion: infomation {audio_in_name} - {customer_information}")
+
     if not customer_information:
         logging.error(f"{CALL_ID} - Customer information not found for: {audio_in_name}")
         return
@@ -154,7 +156,7 @@ async def run_both(audio_file, test_flag):
     # Single shared WebSocket connection
     ws = await ws_connection()
     if not ws or ws.state == 3:
-        logging.error(f"{CALL_ID} - Cannot connect to WebSocket.")
+        logging.error(f"{CALL_ID} - {customer_information.get('customerName', 'Unknown')} Cannot connect to WebSocket.")
         return
 
     # Single connected event

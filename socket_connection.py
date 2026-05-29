@@ -19,9 +19,9 @@ LOG_FILE_CONNECTIONS = os.getenv('LOG_FILE_CONNECTIONS')
 logging = init_debugger(LOG_FILE_CONNECTIONS)
 # end loging
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("websockets")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 # Config opcional: si tienes certificado custom o self-signed
 def get_ssl_context(cert_path=None):
