@@ -25,6 +25,7 @@ logging = init_debugger(LOG_FILE_CONNECTIONS)
 
 CHUNK_SIZE = int(os.getenv('CHUNK_SIZE'))  # 20ms de audio PCM 16-bit a 8kHz
 INACTIVITY_TIMEOUT = int(os.getenv('INACTIVITY_TIMEOUT'))  # segundos sin nuevos bytes
+MONITORING_TIMEOUT = int(os.getenv('MONITORING_TIMEOUT', 5))  # segundos de inactividad durante la llamada
 
 # ----------------------------
 # Configuración de audio
@@ -78,6 +79,7 @@ async def stream_audio(ws, audio_file, direction, CALL_ID, sequence_counter, seq
     if not test:
         try:
             last_chunk_time = time.time()
+            has_started = False
             with open(audio_file, "rb", buffering=0) as audio_pipe:
                 audio_pipe.seek(0, os.SEEK_END)
                 logging.info(f"{CALL_ID} - [{direction}] Iniciando lectura en vivo de {audio_file}")
@@ -85,13 +87,14 @@ async def stream_audio(ws, audio_file, direction, CALL_ID, sequence_counter, seq
                 while True:
                     chunk = audio_pipe.read(CHUNK_SIZE)
                     if not chunk:
-                        if time.time() - last_chunk_time > INACTIVITY_TIMEOUT:
-                            logging.info(f"{CALL_ID} - [{direction}] Archivo inactivo por {INACTIVITY_TIMEOUT}s, se asume fin de grabación.")
+                        timeout_limit = MONITORING_TIMEOUT if has_started else INACTIVITY_TIMEOUT
+                        if time.time() - last_chunk_time > timeout_limit:
+                            logging.info(f"{CALL_ID} - [{direction}] Archivo inactivo por {timeout_limit}s, se asume fin de grabación.")
                             break
                         await asyncio.sleep(FRAME_DURATION)
                         continue
 
-                    
+                    has_started = True
                     async with sequence_lock:
                         sequence = sequence_counter[0]
                         sequence_counter[0] += 1
