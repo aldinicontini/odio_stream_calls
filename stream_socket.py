@@ -25,7 +25,7 @@ logging = init_debugger(LOG_FILE_CONNECTIONS)
 
 CHUNK_SIZE = int(os.getenv('CHUNK_SIZE'))  # 20ms de audio PCM 16-bit a 8kHz
 INACTIVITY_TIMEOUT = int(os.getenv('INACTIVITY_TIMEOUT'))  # segundos sin nuevos bytes
-MONITORING_TIMEOUT = int(os.getenv('MONITORING_TIMEOUT', 5))  # segundos de inactividad durante la llamada
+MONITORING_TIMEOUT = int(os.getenv('MONITORING_TIMEOUT', 15))  # segundos de inactividad durante la llamada
 
 # ----------------------------
 # Configuración de audio
@@ -177,10 +177,17 @@ async def run_both(audio_file, test_flag):
     sequence_counter = [0]          # lista mutable: sequence_counter[0] es el valor actual
     sequence_lock = asyncio.Lock()  # garantiza acceso exclusivo al incremento
 
+    if "custom" in CALL_ID.lower():
+        dir_in, dir_out = "inbound", "outbound"
+    else:
+        dir_in, dir_out = "outbound", "inbound"
+
     # Stream both directions concurrently over the same socket
     await asyncio.gather(
-        stream_audio(ws, audio_in_path,  "inbound",  CALL_ID, sequence_counter, sequence_lock, test_flag),
-        stream_audio(ws, audio_out_path, "outbound", CALL_ID, sequence_counter, sequence_lock, test_flag),
+        stream_audio(ws, audio_in_path,  dir_in,  CALL_ID, sequence_counter, sequence_lock, test_flag),
+        stream_audio(ws, audio_out_path, dir_out, CALL_ID, sequence_counter, sequence_lock, test_flag),
+        # stream_audio(ws, audio_in_path,  "inbound",  CALL_ID, sequence_counter, sequence_lock, test_flag),
+        # stream_audio(ws, audio_out_path, "outbound", CALL_ID, sequence_counter, sequence_lock, test_flag),
     )
 
     # Single stop event after both streams complete
