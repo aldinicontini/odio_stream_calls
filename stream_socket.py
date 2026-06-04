@@ -191,7 +191,7 @@ async def run_both(audio_file, test_flag):
         }
 
         # Single shared WebSocket connection (Duplicated for inbound)
-        ws = await ws_connection()
+        ws_ns = await ws_connection()
         if not ws or ws.state == 3:
             logging.error(f"{CALL_ID} - {customer_information_inbound.get('customerName', 'Unknown')} Cannot connect to WebSocket.")
             return
