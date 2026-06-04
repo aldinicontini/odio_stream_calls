@@ -178,25 +178,48 @@ async def run_both(audio_file, test_flag):
     sequence_lock = asyncio.Lock()  # garantiza acceso exclusivo al incremento
 
     if "custom" in CALL_ID.lower():
-        # aqui es cuando iniciamos una llamada entrante
-        # new cust_info for inbounds:
-        # {
-        #     "event": "Start",
-        #     "streamSid": "unique_stream_identifier",
-        #     "start": {
-        #         "customParameters": {
-        #         "tenantId": "75612601",
-        #         "coeName": "string",
-        #         "agentName": "string",
-        #         "agentId": "string",
-        #         "customerPhone": "string",  #Mandatory  
-        #         "customerName": "string",     
-        #         "callTime": "YYYY-MM-DD HH:MM:SS",
-        #         "call_type": "inbound"
-        #         }
-        #     }
-        # }
-        dir_in, dir_out = "inbound", "outbound"
+        
+        customer_information_inbound = {
+            "tenantId": "75612601",
+            "coeName": customer_information.get("coeName", ""),
+            "agentName": customer_information.get("agentName", ""),
+            "agentId": customer_information.get("agentId", ""),
+            "customerPhone": customer_information.get("customerPhoneNumber", ""),
+            "customerName": customer_information.get("customerName", ""),
+            "callTime": customer_information.get("callTime", ""),
+            "call_type": "inbound"
+        }
+
+        # Single shared WebSocket connection (Duplicated for inbound)
+        ws = await ws_connection()
+        if not ws or ws.state == 3:
+            logging.error(f"{CALL_ID} - {customer_information_inbound.get('customerName', 'Unknown')} Cannot connect to WebSocket.")
+            return
+
+        # Single connected event
+        connect = await send_connected_event(ws)
+        if not connect["success"]:
+            logging.error(f"{CALL_ID} - Failed to send connected event.")
+            return
+
+        # Single start event
+        start = await send_start_event(ws, CALL_ID, customer_information_inbound)
+        if not start["success"]:
+            logging.error(f"{CALL_ID} - Failed to send start event.")
+            return
+
+        sequence_counter = [0]          # lista mutable: sequence_counter[0] es el valor actual
+        sequence_lock = asyncio.Lock()  # garantiza acceso exclusivo al incremento
+
+        await asyncio.gather(
+            stream_audio(ws, audio_in_path,  "inbound",  CALL_ID, sequence_counter, sequence_lock, test_flag),
+            stream_audio(ws, audio_out_path, "outbound", CALL_ID, sequence_counter, sequence_lock, test_flag),
+        )
+
+        # Single stop event after both streams complete
+        await send_stop_event(ws, CALL_ID)
+        await ws.close()
+        logging.info(f"{CALL_ID} - Conexión WebSocket cerrada correctamente.")
     else:
         dir_in, dir_out = "outbound", "inbound"
 
