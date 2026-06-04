@@ -178,6 +178,24 @@ async def run_both(audio_file, test_flag):
     sequence_lock = asyncio.Lock()  # garantiza acceso exclusivo al incremento
 
     if "custom" in CALL_ID.lower():
+        # aqui es cuando iniciamos una llamada entrante
+        # new cust_info for inbounds:
+        # {
+        #     "event": "Start",
+        #     "streamSid": "unique_stream_identifier",
+        #     "start": {
+        #         "customParameters": {
+        #         "tenantId": "75612601",
+        #         "coeName": "string",
+        #         "agentName": "string",
+        #         "agentId": "string",
+        #         "customerPhone": "string",  #Mandatory  
+        #         "customerName": "string",     
+        #         "callTime": "YYYY-MM-DD HH:MM:SS",
+        #         "call_type": "inbound"
+        #         }
+        #     }
+        # }
         dir_in, dir_out = "inbound", "outbound"
     else:
         dir_in, dir_out = "outbound", "inbound"

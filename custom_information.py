@@ -6,6 +6,23 @@ logging = init_debugger(LOG_FILE_CONNECTIONS)
 
 ### this shoul be replaced for SQLlite
 
+
+// total de informacion previamente cargada a customer_information
+# {
+#     'coeName': 'CSCVIP',
+#     'agentName': 'Richel Carreon',
+#     'agentId': 'Richel.Carreon',
+#     'customerName': '',
+#     'customerPhoneNumber': '3169286933',
+#     'lead_id': '7948775',
+#     'caller_code': 'M6020940140007948775',
+#     'recording_name': 'ClearNexus-1780411215.39155',
+#     'uniqueid2': '0',
+#     'uuid': '61cf8a6e-2e37-4624-8457-562a6cd36e52',
+#     'callTime': '2026-06-02 09: 40: 15',
+#     'event_date': '2026-06-02'
+# }
+
 def get_customer_information(filename):
     base_uniqueid = filename.replace("-in.wav", "").replace("-out.wav", "")
     customer_information = None
