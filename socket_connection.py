@@ -33,10 +33,10 @@ def get_ssl_context(cert_path=None):
 
 async def ws_connection(url=WSS_ODIO_URL, cert_path=SSL_CERT_PATH):
     ssl_context = get_ssl_context(cert_path)
-    logging.info(f"Trying to connect to {url} ...")
+    # logging.info(f"Trying to connect to {url} ...")
     try:
         ws = await websockets.connect(url, ssl=ssl_context, max_size=None, ping_interval=None, ping_timeout=None)
-        logging.info(f"Connection established successfully.")
+        # logging.info(f"Connection established successfully.")
         return ws
     except Exception as e:
         logging.error(f"WebSocket connection failed: {e}")

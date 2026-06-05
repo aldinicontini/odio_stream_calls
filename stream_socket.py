@@ -50,7 +50,7 @@ def getRecordingPath(customer_information, audio_file):
         return None
 
     full_audio_path = os.path.join(monitor_dir, audio_file)
-    logging.info(f"Full monitor path: {full_audio_path}")
+    # logging.info(f"Full monitor path: {full_audio_path}")
     return full_audio_path
 
 
