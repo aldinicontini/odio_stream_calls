@@ -98,7 +98,7 @@ async def send_media_event(ws, CALL_ID, DIRECTION, sequence, time_elapsed, chunk
 
     try:
         await ws.send(encoded)
-        logging.info(f"Media Event send: {encoded}")
+        logging.debug(f"Media Event send: {encoded}")
     except Exception as e:
         logging.error(f"Error while trying to send media event: {e}")
 
@@ -111,7 +111,7 @@ async def send_stop_event(ws, CALL_ID):
 
     try:
         await ws.send(encoded)
-        # logging.info(f"Stop Event send: {encoded}")
+        logging.info(f"Stop Event send: {encoded}")
     except Exception as e:
         logging.error(f"Error while trying to send stop event: {e}")
 
@@ -122,9 +122,9 @@ async def wait_fot_ack(ws):
     """
     try:
         ack = await asyncio.wait_for(ws.recv(), timeout=5)
-        logging.info(f"ACK recibido: {ack}")
+        logging.info(f"ACK received: {ack}")
 
         return json.loads(ack)
     except asyncio.TimeoutError:
-        logging.error(f"No se recibió ACK")
+        logging.error(f"ACK not received within timeout")
         return None
