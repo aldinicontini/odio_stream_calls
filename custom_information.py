@@ -7,7 +7,7 @@ logging = init_debugger(LOG_FILE_CONNECTIONS)
 ### this shoul be replaced for SQLlite
 
 
-// total de informacion previamente cargada a customer_information
+#total de informacion previamente cargada a customer_information
 # {
 #     'coeName': 'CSCVIP',
 #     'agentName': 'Richel Carreon',
