@@ -16,6 +16,7 @@ load_dotenv()
 WSS_ODIO_URL = os.getenv('WSS_ODIO_URL')
 SSL_CERT_PATH = os.getenv('SSL_CERT_PATH') or None
 FRAME_DURATION = float(os.getenv('FRAME_DURATION'))
+WSS_ODIO_URL_INBOUND_FLOW = os.getenv('WSS_ODIO_URL_INBOUND_FLOW')
 
 # Logging
 from app_debuger import init_debugger
@@ -215,7 +216,7 @@ async def run_both(audio_file, test_flag):
         }
 
         # Single shared WebSocket connection (Duplicated for inbound)
-        ws_ns = await ws_connection("wss://app.odioiq.com/live/media")
+        ws_ns = await ws_connection(WSS_ODIO_URL_INBOUND_FLOW)
         if not ws_ns or ws_ns.state == 3:
             logging.error(f"INBOUND {CALL_ID} - {customer_information_inbound.get('customerName', 'Unknown')} Cannot connect to WebSocket.")
             return
