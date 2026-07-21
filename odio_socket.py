@@ -98,7 +98,7 @@ async def send_media_event(ws, CALL_ID, DIRECTION, sequence, time_elapsed, chunk
 
     try:
         await ws.send(encoded)
-        logging.debug(f"Media Event send: {encoded}")
+        # logging.debug(f"Media Event send: {encoded}")
     except Exception as e:
         logging.error(f"Error while trying to send media event: {e}")
 

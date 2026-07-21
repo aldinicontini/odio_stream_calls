@@ -156,6 +156,7 @@ async def run_both(audio_file, test_flag):
     if not customer_information:
         logging.error(f"{CALL_ID} - Customer information not found for: {audio_in_name}")
         return
+    customer_information["call_type"] = call_direction
     logging.info(f"{CALL_ID} - getting customer information - {customer_information}")
 
     audio_in_path = getRecordingPath(customer_information, audio_in_name)
