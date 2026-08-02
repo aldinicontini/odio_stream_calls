@@ -2,7 +2,7 @@ import os
 import asyncio
 from dotenv import load_dotenv
 from panoramisk import Manager
-from app_debuger import init_debugger
+from utils.app_debugger import init_debugger
 
 load_dotenv()
 

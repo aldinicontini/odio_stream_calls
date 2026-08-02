@@ -6,14 +6,15 @@ import asyncio
 from dotenv import load_dotenv
 load_dotenv()
 
-from app_debuger import init_debugger
-from session import CallSession, SocketSink, sessions
+from utils.app_debugger import init_debugger
+from utils.socket_utils import ensure_single_instance
+from stream_gateway.session import CallSession, SocketSink, sessions
 
 # ---------------------------------------------------------------------------
 # Configuración
 # ---------------------------------------------------------------------------
 
-HOST = "0.0.0.0"
+HOST = os.getenv("AUDIO_HOST", "0.0.0.0")
 PORT = int(os.getenv("AUDIO_PORT", "9019"))
 
 LOG_FILE = os.getenv("LOG_FILE_CONNECTIONS", "audiosocket.log")
@@ -30,7 +31,7 @@ PKT_TYPE_AUDIO_TX = 0x11  # audio saliente del canal (WRITE) → track "inbound"
 
 
 # ---------------------------------------------------------------------------
-# Parser de framing — NO SE MODIFICA
+# Parser de framing
 # ---------------------------------------------------------------------------
 
 async def read_packet(reader):
@@ -42,7 +43,7 @@ async def read_packet(reader):
 
 
 # ---------------------------------------------------------------------------
-# Handler de conexión — modificado para usar CallSession en lugar de WAVs
+# Handler de conexión
 # ---------------------------------------------------------------------------
 
 async def handle_client(reader, writer):
@@ -97,7 +98,6 @@ async def handle_client(reader, writer):
         logging.exception(f"Error handling connection from {peer}: {e}")
 
     finally:
-        # Señalar fin de llamada a los consumidores activos (stream_audio_live)
         if session is not None:
             session.signal_hangup()
             sessions.pop(session.call_uuid, None)
@@ -116,7 +116,8 @@ async def handle_client(reader, writer):
 # ---------------------------------------------------------------------------
 
 async def start_audio_server():
-    """Inicia el servidor TCP de AudioSocket. Puede llamarse desde un event loop externo."""
+    """Inicia el servidor TCP de AudioSocket. Asegura antes la instancia única del puerto."""
+    await ensure_single_instance(HOST, PORT, logger=logging)
     server = await asyncio.start_server(handle_client, HOST, PORT)
     addr = ", ".join(str(sock.getsockname()) for sock in server.sockets)
     logging.info(f"StreamSocket server listening on {addr}")

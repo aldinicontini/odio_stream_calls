@@ -29,7 +29,7 @@ class NullSink:
     Costo prácticamente cero.
     """
 
-    def write(self, payload: bytes) -> None:  # noqa: D401
+    def write(self, payload: bytes) -> None:
         pass
 
 
@@ -49,7 +49,7 @@ class SocketSink:
         try:
             self._queue.put_nowait(payload)
         except asyncio.QueueFull:
-            pass  # frame descartado por backpressure — la cola está llena
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -59,35 +59,6 @@ class SocketSink:
 class CallSession:
     """
     Estado completo de una llamada activa.
-
-    Atributos
-    ---------
-    call_uuid : str
-        UUID único asignado por Asterisk.
-    state : str
-        "ringing" → "answered" → "hangup"
-    rx_sink / tx_sink : NullSink | SocketSink
-        Destino actual del audio. Se cambia dinámicamente en ANSWER.
-        RX = audio entrante al canal (READ)  → track "outbound" en odio.
-        TX = audio saliente del canal (WRITE) → track "inbound" en odio.
-    rx_queue / tx_queue : asyncio.Queue
-        Buffers de audio en memoria. Se usan solo cuando state == "answered".
-    sequence_counter / sequence_lock
-        Contador de secuencia compartido entre ambas direcciones,
-        con la misma convención que stream_socket.py.
-    answered_event : asyncio.Event
-        Se dispara cuando el agente contesta. No se usa actualmente
-        para bloquear (run_both_live se lanza desde control_server),
-        pero queda disponible para futuras extensiones.
-    customer_information : dict
-        Información del cliente, recibida en el mensaje ANSWER.
-    agent_id : str
-        ID del agente que contestó la llamada.
-    hangup_who / hangup_cause
-        Metadata del hangup recibida desde el parser.
-    stream_task : asyncio.Task | None
-        Task de run_both_live(). Se cancela si llega HANGUP antes de que
-        el streaming termine por sí solo.
     """
 
     def __init__(self, call_uuid: str) -> None:
@@ -123,19 +94,16 @@ class CallSession:
     def signal_hangup(self) -> None:
         """
         Señala el fin de la llamada hacia los consumidores activos de las queues.
-
         Pone un centinela None en ambas queues para que stream_audio_live()
-        pueda salir limpiamente. Si el task de streaming sigue activo,
-        también lo cancela.
+        pueda salir limpiamente.
         """
         self.state = "hangup"
 
-        # Centinela: None indica fin de stream
         for queue in (self.rx_queue, self.tx_queue):
             try:
                 queue.put_nowait(None)
             except asyncio.QueueFull:
-                pass  # si la cola está llena, la cancelación del task se encarga
+                pass
 
         if self.stream_task and not self.stream_task.done():
             self.stream_task.cancel()
@@ -145,7 +113,4 @@ class CallSession:
 # Registro global de sesiones
 # ---------------------------------------------------------------------------
 
-# Compartido por audio_socket_server.py y control_server.py.
-# Ambos corren en el mismo event loop → no se necesita ningún lock adicional
-# para el acceso al dict (asyncio es single-threaded por diseño).
 sessions: dict[str, CallSession] = {}

@@ -32,8 +32,9 @@ import os
 import websockets
 from dotenv import load_dotenv
 
-from app_debuger import init_debugger
-from session import sessions, SocketSink
+from utils.app_debugger import init_debugger
+from utils.socket_utils import ensure_single_instance
+from stream_gateway.session import sessions, SocketSink
 
 load_dotenv()
 
@@ -94,8 +95,7 @@ async def _handle_answer(ws, msg: dict, peer: tuple) -> None:
     Valida los campos requeridos, localiza la sesión, cambia los sinks
     de NullSink → SocketSink, y lanza run_both_live() como asyncio.Task.
     """
-    # Importación local para evitar circular imports en el nivel de módulo
-    from stream_socket import run_both_live
+    from stream_gateway.stream_socket import run_both_live
 
     callid               = msg.get("callid")
     agent                = msg.get("agent")
@@ -136,11 +136,9 @@ async def _handle_answer(ws, msg: dict, peer: tuple) -> None:
     session.state = "answered"
 
     # Cambiar sinks: NullSink → SocketSink
-    # A partir del siguiente frame, el audio ya va a las queues
     session.rx_sink = SocketSink(session.rx_queue)
     session.tx_sink = SocketSink(session.tx_queue)
 
-    # Disparar señal (disponible para futuras extensiones)
     session.answered_event.set()
 
     # Lanzar streaming como task independiente — no bloquea el control server
@@ -177,15 +175,6 @@ async def _handle_hangup(ws, msg: dict, peer: tuple) -> None:
 async def handle_agent(websocket) -> None:
     """
     Atiende una conexión WebSocket de un agente.
-
-    Corre indefinidamente recibiendo mensajes hasta que:
-    - El agente cierra la conexión.
-    - El timeout CONTROL_RECV_TIMEOUT expire sin mensajes.
-    - Ocurra un error de red irrecuperable.
-
-    Cada tipo de mensaje se despacha a su handler específico.
-    Los mensajes JSON inválidos y los tipos desconocidos devuelven un ERROR
-    sin cerrar la conexión — el agente puede reintentarlo.
     """
     peer = websocket.remote_address
     logger.info(f"[CONTROL] Agent connected from {peer}")
@@ -252,7 +241,8 @@ async def handle_agent(websocket) -> None:
 # ---------------------------------------------------------------------------
 
 async def start_control_server() -> None:
-    """Inicia el servidor WebSocket de control. Puede llamarse desde un event loop externo."""
+    """Inicia el servidor WebSocket de control. Asegura antes la instancia única del puerto."""
+    await ensure_single_instance(CONTROL_HOST, CONTROL_PORT, logger=logger)
     async with websockets.serve(handle_agent, CONTROL_HOST, CONTROL_PORT):
         logger.info(f"[CONTROL] WebSocket control server listening on {CONTROL_HOST}:{CONTROL_PORT}")
         print(f"[CONTROL] WebSocket listening on ws://{CONTROL_HOST}:{CONTROL_PORT}")

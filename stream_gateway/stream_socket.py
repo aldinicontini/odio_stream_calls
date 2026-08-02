@@ -4,36 +4,33 @@ import time
 import wave
 import os
 from datetime import datetime
-
-from socket_connection import ws_connection, ws_keepalive
-from odio_socket import send_connected_event, send_start_event, send_stop_event, send_media_event
-from custom_information import get_customer_information
 from dotenv import load_dotenv
+
+from stream_gateway.socket_connection import ws_connection, ws_keepalive
+from stream_gateway.odio_socket import send_connected_event, send_start_event, send_stop_event, send_media_event
+from utils.custom_information import get_customer_information
+from utils.app_debugger import init_debugger
 
 load_dotenv()
 
 # Obtener variables
 WSS_ODIO_URL = os.getenv('WSS_ODIO_URL')
 SSL_CERT_PATH = os.getenv('SSL_CERT_PATH') or None
-FRAME_DURATION = float(os.getenv('FRAME_DURATION'))
+FRAME_DURATION = float(os.getenv('FRAME_DURATION', '0.02'))
 WSS_ODIO_URL_INBOUND_FLOW = os.getenv('WSS_ODIO_URL_INBOUND_FLOW')
 
 # Logging
-from app_debuger import init_debugger
-LOG_FILE_CONNECTIONS = os.getenv('LOG_FILE_CONNECTIONS')
+LOG_FILE_CONNECTIONS = os.getenv('LOG_FILE_CONNECTIONS', 'connections.log')
 logging = init_debugger(LOG_FILE_CONNECTIONS)
-# End logging
 
-CHUNK_SIZE = int(os.getenv('CHUNK_SIZE'))  # 20ms de audio PCM 16-bit a 8kHz
-INACTIVITY_TIMEOUT = int(os.getenv('INACTIVITY_TIMEOUT'))  # segundos sin nuevos bytes
-MONITORING_TIMEOUT = int(os.getenv('MONITORING_TIMEOUT', 15))  # segundos de inactividad durante la llamada
+CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '320'))  # 20ms de audio PCM 16-bit a 8kHz
+INACTIVITY_TIMEOUT = int(os.getenv('INACTIVITY_TIMEOUT', '30'))
+MONITORING_TIMEOUT = int(os.getenv('MONITORING_TIMEOUT', '15'))
 
-# ----------------------------
 # Configuración de audio
-# ----------------------------
-SAMPLE_RATE = int(os.getenv('SAMPLE_RATE'))   # Hz
-SAMPLE_WIDTH = int(os.getenv('SAMPLE_WIDTH')) # bytes (16-bit PCM)
-CHANNELS = int(os.getenv('CHANNELS'))         # mono
+SAMPLE_RATE = int(os.getenv('SAMPLE_RATE', '8000'))
+SAMPLE_WIDTH = int(os.getenv('SAMPLE_WIDTH', '2'))
+CHANNELS = int(os.getenv('CHANNELS', '1'))
 TEST_OUTPUT_FILE = os.getenv('TEST_OUTPUT_FILE')
 
 
@@ -51,7 +48,6 @@ def getRecordingPath(customer_information, audio_file):
         return None
 
     full_audio_path = os.path.join(monitor_dir, audio_file)
-    # logging.info(f"Full monitor path: {full_audio_path}")
     return full_audio_path
 
 
@@ -65,20 +61,12 @@ def init_wave_file(filename):
 
 
 async def stream_audio(ws, audio_file, direction, CALL_ID, sequence_counter, sequence_lock, test=False):
-    """Stream a single audio direction (inbound or outbound) over a shared WebSocket ]
-    """
+    """Stream a single audio direction (inbound or outbound) over a shared WebSocket."""
     chunk_number = 0 
     time_elapsed = 0.0
     last_chunk_time = time.time()
     has_started = False
 
-    #Sample Rate: 8000 Hz
-    #Chunk Size: 1024 samples
-    #Chunk Duration: 128 ms
-    #Encoding: audio/x-mulaw
-    #Raw bytes per chunk: 1024 bytes
-    #const interval = (chunkSize / audioBuffer.sampleRate) * 1000;
-    
     if not test:
         try:
             with open(audio_file, "rb", buffering=0) as audio_pipe:
@@ -137,7 +125,7 @@ async def stream_audio(ws, audio_file, direction, CALL_ID, sequence_counter, seq
 
 
 async def run_both(audio_file, test_flag):
-    CALL_ID = audio_file  # base name without -in/-out suffix
+    CALL_ID = audio_file
     if "custom" in CALL_ID.lower():
         call_direction = "inbound"
         dir_in, dir_out = "inbound", "outbound"
@@ -147,11 +135,9 @@ async def run_both(audio_file, test_flag):
 
     logging.info(f"{CALL_ID} - Starting new '{call_direction}' call streaming process.")
 
-    # Resolve customer info using the filename as reference
     audio_in_name = f"{audio_file}-in.wav"
     audio_out_name = f"{audio_file}-out.wav"
 
-    #get customer information
     customer_information = get_customer_information(audio_in_name)
     if not customer_information:
         logging.error(f"{CALL_ID} - Customer information not found for: {audio_in_name}")
@@ -166,46 +152,35 @@ async def run_both(audio_file, test_flag):
         logging.error(f"{CALL_ID} - Could not resolve audio file paths.")
         return
 
-    # Single shared WebSocket connection
-    # here start the process of connection to the wss for outbound calls
     ws = await ws_connection()
     if not ws or ws.state == 3:
         logging.error(f"{CALL_ID} - Cannot connect to WebSocket - direction: {call_direction} Agent: {customer_information.get('agentId', '')}")
     else:
         logging.info(f"{CALL_ID} - WebSocket connection established - direction: {call_direction} Agent: {customer_information.get('agentId', '')}")
         
-        # Single connected event
         connect = await send_connected_event(ws)
-        if not connect["success"]:
+        if not connect or not connect.get("success"):
             logging.error(f"{CALL_ID} - Failed to send connected event.")
             return
-        
-        # logging.error(f"{CALL_ID} - connected event {connect}")
 
-        # Single start event
         start = await send_start_event(ws, CALL_ID, customer_information)
-        if not start["success"]:
+        if not start or not start.get("success"):
             logging.error(f"{CALL_ID} - Failed to send start event.")
             return
 
         sequence_counter = [0]
         sequence_lock = asyncio.Lock()
 
-        # Stream both directions concurrently over the same socket
         await asyncio.gather(
             stream_audio(ws, audio_in_path,  dir_in,  CALL_ID, sequence_counter, sequence_lock, test_flag),
             stream_audio(ws, audio_out_path, dir_out, CALL_ID, sequence_counter, sequence_lock, test_flag),
-            # stream_audio(ws, audio_in_path,  "inbound",  CALL_ID, sequence_counter, sequence_lock, test_flag),
-            # stream_audio(ws, audio_out_path, "outbound", CALL_ID, sequence_counter, sequence_lock, test_flag),
         )
 
-        # Single stop event after both streams complete
         await send_stop_event(ws, CALL_ID)
         await ws.close()
         logging.info(f"{CALL_ID} - WebSocket connection closed correctly.")
 
-    # here start the process of connection to the wss for inbound calls
-    if call_direction == "inbound":
+    if call_direction == "inbound" and WSS_ODIO_URL_INBOUND_FLOW:
         logging.info(f"{CALL_ID} ⬇️ - Starting preparation of customer information for inbound stream.")  
         customer_information_inbound = {
             "tenantId": "75612601",
@@ -218,34 +193,30 @@ async def run_both(audio_file, test_flag):
             "call_type": "inbound"
         }
 
-        # Single shared WebSocket connection (Duplicated for inbound)
         ws_ns = await ws_connection(WSS_ODIO_URL_INBOUND_FLOW)
         if not ws_ns or ws_ns.state == 3:
             logging.error(f"INBOUND {CALL_ID} - {customer_information_inbound.get('customerName', 'Unknown')} Cannot connect to WebSocket.")
             return
         logging.info(f"{CALL_ID} ⬇️ - WebSocket connection established for inbound stream - Agent: {customer_information_inbound.get('agentId', '')}")  
 
-        # Single connected event
         connect_ns = await send_connected_event(ws_ns)
-        if not connect_ns["success"]:
+        if not connect_ns or not connect_ns.get("success"):
             logging.error(f"INBOUND {CALL_ID} - Failed to send connected event.")
             return
 
-        # Single start event
         start_ns = await send_start_event(ws_ns, CALL_ID, customer_information_inbound)
-        if not start_ns["success"]:
+        if not start_ns or not start_ns.get("success"):
             logging.error(f"INBOUND {CALL_ID} - Failed to send start event.")
             return
 
-        sequence_counter_ns = [0]          # lista mutable: sequence_counter[0] es el valor actual
-        sequence_lock_ns = asyncio.Lock()  # garantiza acceso exclusivo al incremento
+        sequence_counter_ns = [0]
+        sequence_lock_ns = asyncio.Lock()
 
         await asyncio.gather(
             stream_audio(ws_ns, audio_in_path,  "inbound",  CALL_ID, sequence_counter_ns, sequence_lock_ns, test_flag),
             stream_audio(ws_ns, audio_out_path, "outbound", CALL_ID, sequence_counter_ns, sequence_lock_ns, test_flag),
         )
 
-        # Single stop event after both streams complete
         await send_stop_event(ws_ns, CALL_ID)
         await ws_ns.close()
         logging.info(f"INBOUND {CALL_ID} ⬇️ - WebSocket connection closed correctly.")
@@ -253,20 +224,10 @@ async def run_both(audio_file, test_flag):
 
 # ===========================================================================
 # LIVE STREAMING — Consume audio desde una CallSession en tiempo real
-# Las funciones de abajo NO modifican ni reemplazan stream_audio() / run_both().
 # ===========================================================================
 
 async def stream_audio_live(ws, queue: asyncio.Queue, direction: str, CALL_ID: str,
                             sequence_counter: list, sequence_lock: asyncio.Lock) -> None:
-    """
-    Transmite audio en tiempo real leyendo frames desde una asyncio.Queue.
-
-    El centinela None en la queue indica fin de llamada (hangup).
-    También sale si la queue permanece vacía más tiempo del timeout configurado.
-
-    Compatible con la misma convención de secuencia que stream_audio():
-    sequence_counter y sequence_lock se comparten entre ambas direcciones.
-    """
     chunk_number = 0
     time_elapsed = 0.0
     has_started = False
@@ -285,7 +246,6 @@ async def stream_audio_live(ws, queue: asyncio.Queue, direction: str, CALL_ID: s
                 )
                 break
 
-            # Centinela de hangup
             if chunk is None:
                 logging.info(f"{CALL_ID} - [{direction}] Hangup sentinel received, ending live stream.")
                 break
@@ -309,20 +269,9 @@ async def stream_audio_live(ws, queue: asyncio.Queue, direction: str, CALL_ID: s
 
 
 async def run_both_live(session) -> None:
-    """
-    Establece la conexión WebSocket hacia odio y transmite ambas direcciones
-    de audio en tiempo real desde la CallSession.
-
-    Replica el flujo de run_both() usando session.rx_queue y session.tx_queue
-    en lugar de archivos WAV. La customer_information llega pre-cargada en
-    session.customer_information desde el mensaje ANSWER del agente.
-
-    El flujo inbound duplicado (WSS_ODIO_URL_INBOUND_FLOW) queda omitido.
-    """
     CALL_ID = session.call_uuid
-    customer_information = dict(session.customer_information)  # copia defensiva
+    customer_information = dict(session.customer_information)
 
-    # Misma lógica de dirección que run_both()
     if "custom" in CALL_ID.lower():
         call_direction = "inbound"
         dir_rx, dir_tx = "inbound", "outbound"
@@ -359,9 +308,6 @@ async def run_both_live(session) -> None:
         await ws.close()
         return
 
-    # Ambas direcciones concurrentemente sobre el mismo WebSocket.
-    # sequence_counter y sequence_lock provienen de la sesión — garantizan
-    # el mismo orden de secuencia global que en run_both().
     await asyncio.gather(
         stream_audio_live(
             ws, session.rx_queue, dir_rx, CALL_ID,
@@ -377,10 +323,6 @@ async def run_both_live(session) -> None:
     await ws.close()
     logging.info(f"{CALL_ID} - [LIVE] WebSocket connection closed correctly.")
 
-
-# ===========================================================================
-# Entry point legacy (sin cambios)
-# ===========================================================================
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
