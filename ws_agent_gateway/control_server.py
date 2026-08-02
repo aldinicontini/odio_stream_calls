@@ -88,6 +88,47 @@ def _on_stream_done(task: asyncio.Task) -> None:
 # Handlers de mensajes
 # ---------------------------------------------------------------------------
 
+async def _validate_customer_information(ws, customer_information: dict) -> bool:
+    """Valida los campos requeridos y vacíos de customer_information."""
+    required_fields = [
+        "coeName",
+        "agentName",
+        "agentId",
+        "customerName",
+        "uuid",
+        "callTime",
+        "callType",
+    ]
+
+    missing_fields = [f for f in required_fields if f not in customer_information]
+    if missing_fields:
+        await _error(
+            ws,
+            "INVALID_FIELDS",
+            f"customer_information is missing required fields: {', '.join(missing_fields)}"
+        )
+        return False
+
+    # Los únicos campos que pueden estar vacíos
+    allowed_empty = {"customerName", "uuid"}
+
+    empty_fields = [
+        f for f in required_fields
+        if f not in allowed_empty
+        and (customer_information[f] is None or str(customer_information[f]).strip() == "")
+    ]
+
+    if empty_fields:
+        await _error(
+            ws,
+            "INVALID_FIELDS",
+            f"The following customer_information fields cannot be empty: {', '.join(empty_fields)}"
+        )
+        return False
+
+    return True
+
+
 async def _handle_answer(ws, msg: dict, peer: tuple) -> None:
     """
     El agente contestó la llamada.
@@ -109,6 +150,9 @@ async def _handle_answer(ws, msg: dict, peer: tuple) -> None:
 
     if not isinstance(customer_information, dict):
         await _error(ws, "INVALID_FIELDS", "customer_information must be a JSON object")
+        return
+
+    if not await _validate_customer_information(ws, customer_information):
         return
 
     # Buscar sesión activa
