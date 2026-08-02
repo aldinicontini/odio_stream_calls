@@ -251,6 +251,137 @@ async def run_both(audio_file, test_flag):
         logging.info(f"INBOUND {CALL_ID} ⬇️ - WebSocket connection closed correctly.")
 
 
+# ===========================================================================
+# LIVE STREAMING — Consume audio desde una CallSession en tiempo real
+# Las funciones de abajo NO modifican ni reemplazan stream_audio() / run_both().
+# ===========================================================================
+
+async def stream_audio_live(ws, queue: asyncio.Queue, direction: str, CALL_ID: str,
+                            sequence_counter: list, sequence_lock: asyncio.Lock) -> None:
+    """
+    Transmite audio en tiempo real leyendo frames desde una asyncio.Queue.
+
+    El centinela None en la queue indica fin de llamada (hangup).
+    También sale si la queue permanece vacía más tiempo del timeout configurado.
+
+    Compatible con la misma convención de secuencia que stream_audio():
+    sequence_counter y sequence_lock se comparten entre ambas direcciones.
+    """
+    chunk_number = 0
+    time_elapsed = 0.0
+    has_started = False
+
+    logging.info(f"{CALL_ID} - [{direction}] Starting live stream from queue")
+
+    try:
+        while True:
+            timeout = MONITORING_TIMEOUT if has_started else INACTIVITY_TIMEOUT
+
+            try:
+                chunk = await asyncio.wait_for(queue.get(), timeout=timeout)
+            except asyncio.TimeoutError:
+                logging.info(
+                    f"{CALL_ID} - [{direction}] Queue timeout after {timeout}s, ending live stream."
+                )
+                break
+
+            # Centinela de hangup
+            if chunk is None:
+                logging.info(f"{CALL_ID} - [{direction}] Hangup sentinel received, ending live stream.")
+                break
+
+            has_started = True
+
+            async with sequence_lock:
+                sequence = sequence_counter[0]
+                sequence_counter[0] += 1
+
+            chunk_number += 1
+            logging.debug(f"{CALL_ID} - [{direction}] Sequence: {sequence}, Chunk: {chunk_number}")
+
+            await send_media_event(ws, CALL_ID, direction, sequence, round(time_elapsed, 3), chunk)
+            time_elapsed += FRAME_DURATION
+
+    except asyncio.CancelledError:
+        logging.info(f"{CALL_ID} - [{direction}] Live stream cancelled.")
+    except Exception as e:
+        logging.error(f"{CALL_ID} - [{direction}] Error in live stream: {e}")
+
+
+async def run_both_live(session) -> None:
+    """
+    Establece la conexión WebSocket hacia odio y transmite ambas direcciones
+    de audio en tiempo real desde la CallSession.
+
+    Replica el flujo de run_both() usando session.rx_queue y session.tx_queue
+    en lugar de archivos WAV. La customer_information llega pre-cargada en
+    session.customer_information desde el mensaje ANSWER del agente.
+
+    El flujo inbound duplicado (WSS_ODIO_URL_INBOUND_FLOW) queda omitido.
+    """
+    CALL_ID = session.call_uuid
+    customer_information = dict(session.customer_information)  # copia defensiva
+
+    # Misma lógica de dirección que run_both()
+    if "custom" in CALL_ID.lower():
+        call_direction = "inbound"
+        dir_rx, dir_tx = "inbound", "outbound"
+    else:
+        call_direction = "outbound"
+        dir_rx, dir_tx = "outbound", "inbound"
+
+    customer_information["callType"] = call_direction
+    logging.info(
+        f"{CALL_ID} - [LIVE] Starting '{call_direction}' live stream. "
+        f"Agent: {session.agent_id}"
+    )
+
+    ws = await ws_connection()
+    if not ws or ws.state == 3:
+        logging.error(
+            f"{CALL_ID} - [LIVE] Cannot connect to WebSocket. Agent: {session.agent_id}"
+        )
+        return
+
+    logging.info(
+        f"{CALL_ID} - [LIVE] WebSocket connection established. Agent: {session.agent_id}"
+    )
+
+    connect = await send_connected_event(ws)
+    if not connect or not connect.get("success"):
+        logging.error(f"{CALL_ID} - [LIVE] Failed to send connected event.")
+        await ws.close()
+        return
+
+    start = await send_start_event(ws, CALL_ID, customer_information)
+    if not start or not start.get("success"):
+        logging.error(f"{CALL_ID} - [LIVE] Failed to send start event.")
+        await ws.close()
+        return
+
+    # Ambas direcciones concurrentemente sobre el mismo WebSocket.
+    # sequence_counter y sequence_lock provienen de la sesión — garantizan
+    # el mismo orden de secuencia global que en run_both().
+    await asyncio.gather(
+        stream_audio_live(
+            ws, session.rx_queue, dir_rx, CALL_ID,
+            session.sequence_counter, session.sequence_lock
+        ),
+        stream_audio_live(
+            ws, session.tx_queue, dir_tx, CALL_ID,
+            session.sequence_counter, session.sequence_lock
+        ),
+    )
+
+    await send_stop_event(ws, CALL_ID)
+    await ws.close()
+    logging.info(f"{CALL_ID} - [LIVE] WebSocket connection closed correctly.")
+
+
+# ===========================================================================
+# Entry point legacy (sin cambios)
+# ===========================================================================
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("audio_file", help="Ruta base del archivo de audio (sin -in/out)")
