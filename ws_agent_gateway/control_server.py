@@ -242,7 +242,7 @@ async def handle_agent(websocket) -> None:
 
 async def start_control_server() -> None:
     """Inicia el servidor WebSocket de control. Asegura antes la instancia única del puerto."""
-    await ensure_single_instance(CONTROL_HOST, CONTROL_PORT, logger=logger)
+    await ensure_single_instance(CONTROL_HOST, CONTROL_PORT, is_ws=True, logger=logger)
     async with websockets.serve(handle_agent, CONTROL_HOST, CONTROL_PORT):
         logger.info(f"[CONTROL] WebSocket control server listening on {CONTROL_HOST}:{CONTROL_PORT}")
         print(f"[CONTROL] WebSocket listening on ws://{CONTROL_HOST}:{CONTROL_PORT}")

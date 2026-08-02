@@ -9,6 +9,10 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_FILE="$PROJECT_ROOT/logs/cron_watchdog.log"
 PYTHON_BIN="$PROJECT_ROOT/venv/bin/python3"
 
+# Asegurar directorio de trabajo y PYTHONPATH
+cd "$PROJECT_ROOT" || exit 1
+export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
+
 # Crear directorio de logs si no existe
 mkdir -p "$PROJECT_ROOT/logs"
 
@@ -33,8 +37,8 @@ async def check():
     control_port = int(os.getenv('CONTROL_PORT', '9020'))
     host = os.getenv('LOCAL_HOST', '127.0.0.1')
     
-    audio_ok = await ping_local_server(host, audio_port, timeout=2.0)
-    control_ok = await ping_local_server(host, control_port, timeout=2.0)
+    audio_ok = await ping_local_server(host, audio_port, timeout=2.0, is_ws=False)
+    control_ok = await ping_local_server(host, control_port, timeout=2.0, is_ws=True)
     
     if audio_ok and control_ok:
         sys.exit(0)
@@ -61,15 +65,14 @@ async def clean():
     audio_port = int(os.getenv('AUDIO_PORT', '9019'))
     control_port = int(os.getenv('CONTROL_PORT', '9020'))
     host = os.getenv('LOCAL_HOST', '127.0.0.1')
-    await ensure_single_instance(host, audio_port)
-    await ensure_single_instance(host, control_port)
+    await ensure_single_instance(host, audio_port, is_ws=False)
+    await ensure_single_instance(host, control_port, is_ws=True)
 
 asyncio.run(clean())
 " >> "$LOG_FILE" 2>&1
 
     # Iniciar servidor main.py en segundo plano
     echo "[$(timestamp)] [INFO] Launching main.py in background..." >> "$LOG_FILE"
-    cd "$PROJECT_ROOT"
     nohup "$PYTHON_BIN" main.py >> "$PROJECT_ROOT/logs/main_server.log" 2>&1 &
     
     sleep 2
@@ -84,8 +87,8 @@ async def check():
     control_port = int(os.getenv('CONTROL_PORT', '9020'))
     host = os.getenv('LOCAL_HOST', '127.0.0.1')
     
-    audio_ok = await ping_local_server(host, audio_port, timeout=2.0)
-    control_ok = await ping_local_server(host, control_port, timeout=2.0)
+    audio_ok = await ping_local_server(host, audio_port, timeout=2.0, is_ws=False)
+    control_ok = await ping_local_server(host, control_port, timeout=2.0, is_ws=True)
     
     if audio_ok and control_ok:
         sys.exit(0)

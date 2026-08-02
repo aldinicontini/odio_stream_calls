@@ -15,19 +15,36 @@ def is_port_in_use(host: str, port: int) -> bool:
         return s.connect_ex((host, port)) == 0
 
 
-async def ping_local_server(host: str, port: int, timeout: float = 1.0) -> bool:
-    """Intenta abrir una conexión TCP al puerto (ping TCP)."""
-    try:
-        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
-        writer.close()
-        await writer.wait_closed()
-        return True
-    except Exception:
-        return False
+async def ping_local_server(host: str, port: int, timeout: float = 1.0, is_ws: bool = False) -> bool:
+    """
+    Intenta abrir una conexión al puerto (ping TCP / WebSocket).
+
+    Para servidores WebSocket (is_ws=True), realiza un handshake de WebSocket
+    para evitar errores de parsing HTTP en los logs del servidor.
+    """
+    connect_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+
+    if is_ws:
+        try:
+            import websockets
+            url = f"ws://{connect_host}:{port}"
+            async with websockets.connect(url, open_timeout=timeout, close_timeout=timeout):
+                return True
+        except Exception:
+            # Si el puerto responde (incluso con error de handshake de auth/HTTP), el puerto está activo
+            return is_port_in_use(connect_host, port)
+    else:
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(connect_host, port), timeout)
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except Exception:
+            return False
 
 
 def get_pid_on_port(port: int, logger=None) -> int | None:
-    """Obtiene el PID del proceso que está usando el puerto TCP (usando ss o netstat/lsof)."""
+    """Obtiene el PID del proceso que está usando el puerto TCP (usando ss, lsof o netstat)."""
     log = logger or default_logger
     try:
         # 1. Intentar con ss
@@ -63,7 +80,7 @@ def get_pid_on_port(port: int, logger=None) -> int | None:
     return None
 
 
-async def ensure_single_instance(host: str, port: int, ping_timeout: float = 1.0, logger=None) -> bool:
+async def ensure_single_instance(host: str, port: int, ping_timeout: float = 1.0, is_ws: bool = False, logger=None) -> bool:
     """
     Evita instancias duplicadas o puertos bloqueados por procesos zombies.
     
@@ -78,8 +95,8 @@ async def ensure_single_instance(host: str, port: int, ping_timeout: float = 1.0
     if is_port_in_use(host, port):
         log.warning(f"[WARN] El puerto {port} ({host}) ya está en uso. Verificando capacidad de respuesta...")
 
-        # Si responde a ping TCP, el servidor está respondiendo
-        if await ping_local_server(host, port, timeout=ping_timeout):
+        # Si responde a ping, el servidor está funcionando correctamente
+        if await ping_local_server(host, port, timeout=ping_timeout, is_ws=is_ws):
             log.info(f"[INFO] El servidor en {host}:{port} responde correctamente.")
             return True
 
