@@ -6,51 +6,76 @@ from dotenv import load_dotenv
 load_dotenv()
 DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
 
-# ---------------------------------------------------------------------------
-# Directorio base para todos los archivos de log del proyecto.
-# Se crea automáticamente si no existe.
-# ---------------------------------------------------------------------------
+# Directorio base para logs cuando se usan rutas relativas
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 _LOGS_DIR = os.path.join(_PROJECT_ROOT, "logs")
-os.makedirs(_LOGS_DIR, exist_ok=True)
+
+
+def _try_mkdir(path: str) -> bool:
+    """Intenta crear un directorio. Retorna True si existe o fue creado."""
+    try:
+        os.makedirs(path, exist_ok=True)
+        return True
+    except (PermissionError, OSError):
+        return False
 
 
 def _resolve_log_path(log_file: str) -> str:
     """
-    Garantiza que el log termine siempre dentro de logs/.
+    Resuelve la ruta final del log file siguiendo esta estrategia:
 
-    - Ruta absoluta (ej: /usr/local/bin/.../connection.log):
-      se extrae el basename y se redirige a logs/connection.log
-    - Ruta relativa o solo nombre:
-      se coloca directamente en logs/
+    Ruta absoluta (ej: /usr/local/bin/.../connection.log)
+    -------------------------------------------------------
+    1. Intenta usar  <mismo-directorio>/logs/<nombre>.log
+    2. Si no tiene permisos, usa la ruta original tal cual
+
+    Ruta relativa o solo nombre
+    ----------------------------
+    1. Siempre en  <proyecto>/logs/<nombre>.log
     """
-    return os.path.join(_LOGS_DIR, os.path.basename(log_file))
+    if os.path.isabs(log_file):
+        parent_dir = os.path.dirname(log_file)
+        logs_subdir = os.path.join(parent_dir, "logs")
+        if _try_mkdir(logs_subdir):
+            return os.path.join(logs_subdir, os.path.basename(log_file))
+        # Fallback: usar la ruta absoluta original (ya funcionaba antes)
+        return log_file
+    else:
+        _try_mkdir(_LOGS_DIR)
+        return os.path.join(_LOGS_DIR, os.path.basename(log_file))
 
 
 def init_debugger(log_file: str = "app.log") -> logging.Logger:
     """
-    Crea (o reutiliza) un Logger nombrado que escribe exclusivamente en logs/<nombre>.
+    Crea (o reutiliza) un Logger nombrado que escribe en logs/<nombre>.
 
     Retorna un objeto Logger — no el módulo logging — de modo que cada módulo
     tenga su propio destino sin mezclar mensajes entre archivos.
 
-    Los handlers no se duplican aunque el módulo se reimporte.
-    El logger no propaga al root logger para evitar interferencias con
-    librerías externas (websockets, asyncio, etc.).
+    Estrategia de fallback:
+      1. Intenta escribir en  logs/<nombre>.log  (junto al log original)
+      2. Si hay PermissionError, escribe en la ruta original
+      3. Como último recurso, escribe en stderr para no silenciar errores
 
-    Uso idéntico al código anterior:
-        logging = init_debugger(LOG_FILE_CONNECTIONS)
-        logging.info("mensaje")
-        logging.error("error")
+    Los handlers no se duplican aunque el módulo se reimporte.
     """
     resolved_path = _resolve_log_path(log_file)
     logger_name = os.path.splitext(os.path.basename(resolved_path))[0]
 
     logger = logging.getLogger(logger_name)
 
-    # Evitar añadir handlers duplicados si el módulo se reimporta
     if not logger.handlers:
-        handler = logging.FileHandler(resolved_path, mode='a', encoding='utf-8')
+        handler: logging.Handler
+        try:
+            handler = logging.FileHandler(resolved_path, mode='a', encoding='utf-8')
+        except (PermissionError, OSError):
+            # Segundo intento: ruta original absoluta
+            try:
+                handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+            except (PermissionError, OSError):
+                # Último recurso: stderr
+                handler = logging.StreamHandler()
+
         handler.setFormatter(
             logging.Formatter('[%(asctime)s] [%(levelname)s] - %(message)s')
         )
