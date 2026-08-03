@@ -262,7 +262,7 @@ async def handle_agent(websocket) -> None:
             # Autenticación por token
             if CONTROL_AUTH_TOKEN:
                 if msg.get("token") != CONTROL_AUTH_TOKEN:
-                    logger.warning(f"[CONTROL] Unauthorized access from {peer}")
+                    logger.warning(f"[CONTROL] Unauthorized access from {peer} original msg: {msg}")
                     await _error(websocket, "UNAUTHORIZED", "Invalid or missing token")
                     continue
 
