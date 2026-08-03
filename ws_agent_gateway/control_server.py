@@ -32,6 +32,7 @@ import ssl
 
 import websockets
 from dotenv import load_dotenv
+from datetime import datetime
 
 from utils.app_debugger import init_debugger
 from utils.socket_utils import ensure_single_instance
@@ -99,9 +100,7 @@ async def _validate_customer_information(ws, customer_information: dict) -> bool
         "agentName",
         "agentId",
         "customerName",
-        "uuid",
-        "callTime",
-        "callType",
+        "uuid"
     ]
 
     missing_fields = [f for f in required_fields if f not in customer_information]
@@ -177,6 +176,13 @@ async def _handle_answer(ws, msg: dict, peer: tuple) -> None:
         return
 
     logger.info(f"[CONTROL] ANSWER callid={callid} agent={agent} from {peer}")
+
+    ## default values and current datetime
+    customer_information["callTime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if "custom" in callid.lower():
+        customer_information["callType"] = "inbound"
+    else:
+        customer_information["callType"] = "outbound"
 
     # Cargar información del cliente en la sesión
     session.customer_information = customer_information
