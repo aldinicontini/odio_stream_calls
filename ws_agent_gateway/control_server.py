@@ -224,7 +224,10 @@ async def handle_agent(websocket) -> None:
     """
     Atiende una conexión WebSocket de un agente.
     """
-    peer = websocket.remote_address
+    peer = websocket.request.headers.get(
+        "X-Real-IP",
+        peer[0]
+    )
     logger.info(f"[CONTROL] Agent connected from {peer}")
 
     try:
