@@ -170,8 +170,8 @@ async def _handle_answer(ws, msg: dict, peer: tuple) -> None:
         await _error(ws, "ALREADY_ANSWERED", f"Session '{callid}' is already answered")
         return
 
-    if session.state == "hangup":
-        logger.warning(f"[CONTROL] ANSWER for hung-up callid={callid}")
+    if session.state == "finished":
+        logger.warning(f"[CONTROL] ANSWER for finished callid={callid}")
         await _error(ws, "HANGUP", f"Session '{callid}' already finished")
         return
 
@@ -184,16 +184,8 @@ async def _handle_answer(ws, msg: dict, peer: tuple) -> None:
     else:
         customer_information["callType"] = "outbound"
 
-    # Cargar información del cliente en la sesión
-    session.customer_information = customer_information
-    session.agent_id = agent
-    session.state = "answered"
-
-    # Cambiar sinks: NullSink → SocketSink
-    session.rx_sink = SocketSink(session.rx_queue)
-    session.tx_sink = SocketSink(session.tx_queue)
-
-    session.answered_event.set()
+    # Activar streaming mediante CallSession (NullSink → SocketSink)
+    session.activate_streaming(agent, customer_information)
 
     # Lanzar streaming como task independiente — no bloquea el control server
     task = asyncio.create_task(run_both_live(session))
@@ -205,7 +197,7 @@ async def _handle_answer(ws, msg: dict, peer: tuple) -> None:
 
 
 async def _handle_hangup(ws, msg: dict, peer: tuple) -> None:
-    """Cuelga manualmente una llamada activa desde el control server."""
+    """Cuelga/pausa el streaming de una llamada desde el control server."""
     callid = msg.get("callid")
     if not callid:
         await _error(ws, "MISSING_FIELDS", "callid is required")
@@ -217,8 +209,8 @@ async def _handle_hangup(ws, msg: dict, peer: tuple) -> None:
         return
 
     logger.info(f"[CONTROL] Manual HANGUP callid={callid} from {peer}")
-    session.signal_hangup()
-    sessions.pop(callid, None)
+    # Redirigir audio a NullSink, detener consumidores de audio y mantener la conexión TCP
+    session.deactivate_streaming()
     await _ack(ws, callid)
 
 

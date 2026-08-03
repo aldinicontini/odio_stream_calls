@@ -91,22 +91,50 @@ class CallSession:
         # Task de streaming activo
         self.stream_task: asyncio.Task | None = None
 
-    def signal_hangup(self) -> None:
+    def activate_streaming(self, agent_id: str, customer_information: dict) -> None:
         """
-        Señala el fin de la llamada hacia los consumidores activos de las queues.
-        Pone un centinela None en ambas queues para que stream_audio_live()
-        pueda salir limpiamente.
+        Activa el envío de audio a SocketSink y prepara las colas para consumo.
+        Permite reanudar la sesión si fue pausada anteriormente.
         """
-        self.state = "hangup"
+        self.customer_information = customer_information
+        self.agent_id = agent_id
+        self.state = "answered"
+        self.answered_event.set()
+
+        # Re-crear colas limpias por si se pausó/reanudó anteriormente
+        self.rx_queue = asyncio.Queue(maxsize=AUDIO_QUEUE_MAXSIZE)
+        self.tx_queue = asyncio.Queue(maxsize=AUDIO_QUEUE_MAXSIZE)
+
+        self.rx_sink = SocketSink(self.rx_queue)
+        self.tx_sink = SocketSink(self.tx_queue)
+
+    def deactivate_streaming(self) -> None:
+        """
+        Desactiva el streaming: redirige el audio a NullSink(), detiene los
+        consumidores activos enviando un centinela None a las colas y cambia
+        el estado a "paused". Mantiene la conexión TCP viva y descartando paquetes.
+        """
+        self.rx_sink = NullSink()
+        self.tx_sink = NullSink()
+        self.state = "paused"
 
         for queue in (self.rx_queue, self.tx_queue):
             try:
                 queue.put_nowait(None)
-            except asyncio.QueueFull:
+            except (asyncio.QueueFull, AttributeError):
                 pass
 
         if self.stream_task and not self.stream_task.done():
             self.stream_task.cancel()
+            self.stream_task = None
+
+    def signal_hangup(self) -> None:
+        """
+        Señala el fin definitivo de la llamada (ejecutado en el bloque finally
+        cuando la conexión TCP física de AudioSocket se desconecta).
+        """
+        self.deactivate_streaming()
+        self.state = "finished"
 
 
 # ---------------------------------------------------------------------------

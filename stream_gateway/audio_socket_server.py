@@ -82,11 +82,12 @@ async def handle_client(reader, writer):
                     if session is not None:
                         session.hangup_who = who_label
                         session.hangup_cause = cause
+                        session.deactivate_streaming()
                 logging.info(
                     f"Hangup received for {session.call_uuid if session else 'unknown'} "
-                    f"— colgó: {who_label} — cause={payload[1] if len(payload) >= 2 else None}"
+                    f"— colgó: {who_label} — cause={payload[1] if len(payload) >= 2 else None} "
+                    f"— NullSink active, connection remaining open"
                 )
-                break
 
             else:
                 logging.warning(f"Tipo de paquete desconocido: {ptype:#04x}")
