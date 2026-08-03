@@ -31,6 +31,7 @@ import os
 import ssl
 
 import websockets
+from http import HTTPStatus
 from dotenv import load_dotenv
 from datetime import datetime
 
@@ -285,6 +286,22 @@ async def handle_agent(websocket) -> None:
     finally:
         logger.info(f"[CONTROL] Connection closed: {peer}")
 
+async def process_request(connection, request):
+    headers = request.headers
+
+    if headers.get("Upgrade", "").lower() != "websocket":
+        logger.debug(
+            f"HTTP request from {connection.remote_address} ignored "
+            f"(Upgrade={headers.get('Upgrade')}, Connection={headers.get('Connection')})"
+        )
+
+        return (
+            HTTPStatus.BAD_REQUEST,
+            [],
+            b"Bad request.\n"
+        )
+
+    return None
 
 # ---------------------------------------------------------------------------
 # Start del servidor — expuesto para main.py
@@ -309,7 +326,7 @@ async def start_control_server() -> None:
                 f"cert='{SSL_CERT_PATH}', key='{SSL_KEY_PATH}'"
             )
 
-    async with websockets.serve(handle_agent, CONTROL_HOST, CONTROL_PORT, ssl=ssl_context):
+    async with websockets.serve(handle_agent, CONTROL_HOST, CONTROL_PORT, ssl=ssl_context, process_request=process_request):
         logger.info(f"[CONTROL] WebSocket control server listening on {protocol_scheme}://{CONTROL_HOST}:{CONTROL_PORT}")
         print(f"[CONTROL] WebSocket listening on {protocol_scheme}://{CONTROL_HOST}:{CONTROL_PORT}")
         await asyncio.Future()  # correr indefinidamente
