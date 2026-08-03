@@ -28,6 +28,7 @@ import asyncio
 import json
 import logging
 import os
+import ssl
 
 import websockets
 from dotenv import load_dotenv
@@ -46,6 +47,9 @@ CONTROL_HOST        = os.getenv("CONTROL_HOST", "0.0.0.0")
 CONTROL_PORT        = int(os.getenv("CONTROL_PORT", "9020"))
 CONTROL_AUTH_TOKEN  = os.getenv("CONTROL_AUTH_TOKEN", "")
 CONTROL_RECV_TIMEOUT = float(os.getenv("CONTROL_RECV_TIMEOUT", "300"))  # segundos
+
+SSL_CERT_PATH       = os.getenv("SSL_CERT_PATH", "").strip()
+SSL_KEY_PATH        = os.getenv("SSL_KEY_PATH", "").strip()
 
 LOG_FILE = os.getenv("LOG_FILE_CONNECTIONS", "audiosocket.log")
 logger = init_debugger(LOG_FILE)
@@ -287,9 +291,25 @@ async def handle_agent(websocket) -> None:
 async def start_control_server() -> None:
     """Inicia el servidor WebSocket de control. Asegura antes la instancia única del puerto."""
     await ensure_single_instance(CONTROL_HOST, CONTROL_PORT, is_ws=True, logger=logger)
-    async with websockets.serve(handle_agent, CONTROL_HOST, CONTROL_PORT):
-        logger.info(f"[CONTROL] WebSocket control server listening on {CONTROL_HOST}:{CONTROL_PORT}")
-        print(f"[CONTROL] WebSocket listening on ws://{CONTROL_HOST}:{CONTROL_PORT}")
+    
+    ssl_context = None
+    protocol_scheme = "ws"
+
+    if SSL_CERT_PATH and SSL_KEY_PATH:
+        if os.path.exists(SSL_CERT_PATH) and os.path.exists(SSL_KEY_PATH):
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_context.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
+            protocol_scheme = "wss"
+            logger.info(f"[CONTROL] SSL certificate loaded successfully from {SSL_CERT_PATH}")
+        else:
+            logger.error(
+                f"[CONTROL] SSL enabled but cert/key file not found. "
+                f"cert='{SSL_CERT_PATH}', key='{SSL_KEY_PATH}'"
+            )
+
+    async with websockets.serve(handle_agent, CONTROL_HOST, CONTROL_PORT, ssl=ssl_context):
+        logger.info(f"[CONTROL] WebSocket control server listening on {protocol_scheme}://{CONTROL_HOST}:{CONTROL_PORT}")
+        print(f"[CONTROL] WebSocket listening on {protocol_scheme}://{CONTROL_HOST}:{CONTROL_PORT}")
         await asyncio.Future()  # correr indefinidamente
 
 
