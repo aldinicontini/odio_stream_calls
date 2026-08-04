@@ -101,7 +101,9 @@ class CallSession:
         self.recording_segment: int = 0
         self.rx_recorder: WavFileSink | None = None
         self.tx_recorder: WavFileSink | None = None
-        self.current_segment_paths: tuple | None = None  # (rx, tx, all) del segmento abiert
+        self.current_segment_paths: tuple | None = None  # (rx, tx, all) del segmento abierto
+        self.last_all_path: str | None = None
+        self._pending_merge_task: asyncio.Task | None = None
 
     def activate_streaming(self, agent_id: str, customer_information: dict) -> None:
         """
@@ -160,6 +162,7 @@ class CallSession:
         if exc:
             logging.error(f"{call_uuid} - Error al fusionar {all_path}: {exc}")
         else:
+            self.last_all_path = all_path
             logging.info(f"{call_uuid} - Segmento fusionado correctamente: {all_path}")
 
     def _start_recording_segment(self) -> None:
@@ -195,6 +198,7 @@ class CallSession:
         if paths:
             rx_path, tx_path, all_path = paths
             task = asyncio.create_task(merge_stereo(rx_path, tx_path, all_path))
+            self._pending_merge_task = task
             task.add_done_callback(
                 lambda t, uuid=self.call_uuid, ap=all_path: self._on_segment_merge_done(t, uuid, ap)
             )

@@ -38,6 +38,8 @@ from datetime import datetime
 from utils.app_debugger import init_debugger
 from utils.socket_utils import ensure_single_instance
 from stream_gateway.session import sessions, SocketSink
+from stream_gateway.odio_metadata import send_recording_metadata, OdioMetadataError
+from stream_gateway.recording import build_public_recording_url
 
 load_dotenv()
 
@@ -53,8 +55,13 @@ CONTROL_RECV_TIMEOUT = float(os.getenv("CONTROL_RECV_TIMEOUT", "300"))  # segund
 SSL_CERT_PATH       = os.getenv("SSL_CERT_PATH", "").strip()
 SSL_KEY_PATH        = os.getenv("SSL_KEY_PATH", "").strip()
 
+ODIO_TENANT_ID          = os.getenv("ODIO_TENANT_ID", "75612601")
+ODIO_MOMENT_BUCKET_NAME = os.getenv("ODIO_MOMENT_BUCKET_NAME", "MonitoringForm")
+ODIO_MOMENT_BUCKET      = os.getenv("ODIO_MOMENT_BUCKET", "138")
+
 LOG_FILE = os.getenv("LOG_FILE_CONNECTIONS", "audiosocket.log")
 logger = init_debugger(LOG_FILE)
+
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +222,77 @@ async def _handle_hangup(ws, msg: dict, peer: tuple) -> None:
     await _ack(ws, callid)
 
 
+async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
+    """
+    Procesa el evento SEND_RECORDING enviado por el agente o sistema.
+    Obtiene el archivo -all.wav más reciente de la llamada, genera la URL pública
+    y despacha la metadata vía POST a OdioIQ.
+    """
+    callid = msg.get("callid")
+    if not callid:
+        await _error(ws, "MISSING_FIELDS", "callid is required")
+        return
+
+    session = sessions.get(callid)
+    if session is None:
+        await _error(ws, "NOT_FOUND", f"Session '{callid}' not found")
+        return
+
+    logger.info(f"[CONTROL] SEND_RECORDING request for callid={callid} from {peer}")
+
+    # Si hay un segmento activo en grabación, cerrarlo para iniciar el merge
+    if session.rx_recorder is not None or session.tx_recorder is not None:
+        session._close_recording_segment()
+
+    # Si hay una tarea de merge pendiente, esperar a que finalice
+    if session._pending_merge_task and not session._pending_merge_task.done():
+        logger.info(f"[CONTROL] Waiting for stereo merge task for callid={callid}...")
+        try:
+            await session._pending_merge_task
+        except Exception as exc:
+            logger.error(f"[CONTROL] Pending merge task failed for callid={callid}: {exc}")
+
+    if not session.last_all_path:
+        await _error(ws, "NO_RECORDING", f"No merged recording found for callid='{callid}'")
+        return
+
+    public_url = build_public_recording_url(session.last_all_path)
+    if not public_url:
+        await _error(ws, "CONFIG_ERROR", "RECORDING_PUBLIC_BASE_URL is not configured")
+        return
+
+    logger.info(f"[CONTROL] Public URL for callid={callid}: {public_url}")
+
+    payload = {
+        "unique_id": callid,
+        "recording_url": public_url,
+    }
+
+    # Si la solicitud incluyó un dict de metadata adicional o payload extra
+    if isinstance(msg.get("metadata"), dict):
+        payload.update(msg["metadata"])
+        
+    try:
+        status_code, resp_data = await send_recording_metadata(payload)
+        logger.info(
+            f"[CONTROL] Metadata sent to OdioIQ for callid={callid}: "
+            f"status={status_code}, response={resp_data}"
+        )
+        await _send(ws, {
+            "type": "ACK",
+            "callid": callid,
+            "status": status_code,
+            "recording_url": public_url,
+            "response": resp_data
+        })
+    except OdioMetadataError as exc:
+        logger.error(f"[CONTROL] OdioMetadataError for callid={callid}: {exc}")
+        await _error(ws, "METADATA_ERROR", str(exc))
+    except Exception as exc:
+        logger.exception(f"[CONTROL] Unexpected error sending metadata for callid={callid}: {exc}")
+        await _error(ws, "SERVER_ERROR", f"Error sending recording metadata: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Handler principal de conexión de agente
 # ---------------------------------------------------------------------------
@@ -272,6 +350,9 @@ async def handle_agent(websocket) -> None:
 
             elif msg_type == "HANGUP":
                 await _handle_hangup(websocket, msg, peer)
+
+            elif msg_type == "SEND_RECORDING":
+                await _handle_send_recording(websocket, msg, peer)
 
             elif msg_type == "PING":
                 await _send(websocket, {"type": "PONG"})

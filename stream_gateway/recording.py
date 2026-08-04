@@ -15,6 +15,7 @@ from datetime import datetime
 from utils.app_debugger import init_debugger
 
 RECORDINGS_BASE_DIR = os.getenv("RECORDINGS_BASE_DIR", "recordings")
+RECORDING_PUBLIC_BASE_URL = os.getenv("RECORDING_PUBLIC_BASE_URL", "").rstrip("/")
 SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "8000"))
 SAMPLE_WIDTH = int(os.getenv("SAMPLE_WIDTH", "2"))
 CHANNELS = int(os.getenv("CHANNELS", "1"))
@@ -23,6 +24,14 @@ LOG_FILE = os.getenv("LOG_FILE_CONNECTIONS", "audiosocket.log")
 logging = init_debugger(LOG_FILE)
 
 BYTES_PER_SECOND = SAMPLE_RATE * SAMPLE_WIDTH
+
+
+def build_public_recording_url(local_path: str) -> str | None:
+    if not RECORDING_PUBLIC_BASE_URL or not local_path:
+        return None
+    rel_path = os.path.relpath(local_path, RECORDINGS_BASE_DIR)
+    return f"{RECORDING_PUBLIC_BASE_URL}/{rel_path.replace(os.sep, '/')}"
+
 
 # ---------------------------------------------------------------------------
 # Sink de grabación a disco
