@@ -266,6 +266,7 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
     payload = {
         "unique_id": callid,
         "recording_url": public_url,
+        "call_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
     # Si la solicitud incluyó un dict de metadata adicional o payload extra
