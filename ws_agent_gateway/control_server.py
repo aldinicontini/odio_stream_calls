@@ -285,6 +285,8 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
             "recording_url": public_url,
             "response": resp_data
         })
+        sessions.pop(callid, None)
+        logger.info(f"[CONTROL] Session '{callid}' successfully finalized and popped from memory.")
     except OdioMetadataError as exc:
         logger.error(f"[CONTROL] OdioMetadataError for callid={callid}: {exc}")
         await _error(ws, "METADATA_ERROR", str(exc))

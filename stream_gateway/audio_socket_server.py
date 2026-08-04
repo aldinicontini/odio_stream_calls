@@ -8,7 +8,7 @@ load_dotenv()
 
 from utils.app_debugger import init_debugger
 from utils.socket_utils import ensure_single_instance
-from stream_gateway.session import CallSession, SocketSink, sessions
+from stream_gateway.session import CallSession, SocketSink, sessions, cleanup_stale_sessions
 
 # ---------------------------------------------------------------------------
 # Configuración
@@ -53,6 +53,7 @@ async def handle_client(reader, writer):
     bytes_tx = 0
 
     logging.info(f"New StreamSocket connection from {peer}")
+    cleanup_stale_sessions()
 
     try:
         while True:
@@ -105,15 +106,16 @@ async def handle_client(reader, writer):
     finally:
         if session is not None:
             session.signal_hangup()
-            sessions.pop(session.call_uuid, None)
             logging.info(
                 f"Finished call {session.call_uuid} "
                 f"— rx={bytes_rx}B tx={bytes_tx}B "
-                f"— hangup_who={session.hangup_who} cause={session.hangup_cause}"
+                f"— hangup_who={session.hangup_who} cause={session.hangup_cause} "
+                f"— Session preserved for SEND_RECORDING"
             )
 
         writer.close()
         await writer.wait_closed()
+
 
 
 # ---------------------------------------------------------------------------

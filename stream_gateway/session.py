@@ -9,6 +9,7 @@ que corren en el mismo event loop de asyncio.
 
 import asyncio
 import os
+import time
 from dotenv import load_dotenv
 from stream_gateway.recording import WavFileSink, build_recording_paths, merge_stereo
 from utils.app_debugger import init_debugger
@@ -20,6 +21,8 @@ logging = init_debugger(LOG_FILE)
 load_dotenv()
 
 AUDIO_QUEUE_MAXSIZE = int(os.getenv("AUDIO_QUEUE_MAXSIZE", "500"))
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "3600"))
+
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +72,7 @@ class CallSession:
 
     def __init__(self, call_uuid: str) -> None:
         self.call_uuid: str = call_uuid
+        self.created_at: float = time.time()
         self.state: str = "ringing"
 
         # Queues de audio — activas solo en estado "answered"
@@ -207,7 +211,26 @@ class CallSession:
 
 
 # ---------------------------------------------------------------------------
-# Registro global de sesiones
+# Registro global de sesiones y limpieza
 # ---------------------------------------------------------------------------
 
 sessions: dict[str, CallSession] = {}
+
+
+def cleanup_stale_sessions(max_age_seconds: int = SESSION_TTL_SECONDS) -> int:
+    """
+    Elimina del diccionario global `sessions` aquellas sesiones que hayan
+    superado el tiempo máximo de vida (TTL), evitando fugas de memoria si
+    no se ejecutó el evento SEND_RECORDING.
+    """
+    now = time.time()
+    stale_keys = [
+        call_uuid for call_uuid, sess in sessions.items()
+        if (now - sess.created_at) > max_age_seconds
+    ]
+    for key in stale_keys:
+        sessions.pop(key, None)
+    if stale_keys:
+        logging.info(f"Limpiadas {len(stale_keys)} sesiones obsoletas de la memoria: {stale_keys}")
+    return len(stale_keys)
+
