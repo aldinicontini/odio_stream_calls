@@ -10,6 +10,12 @@ que corren en el mismo event loop de asyncio.
 import asyncio
 import os
 from dotenv import load_dotenv
+from stream_gateway.recording import WavFileSink, build_recording_paths, merge_stereo
+from utils.app_debugger import init_debugger
+
+
+LOG_FILE = os.getenv("LOG_FILE_CONNECTIONS", "audiosocket.log")
+logging = init_debugger(LOG_FILE)
 
 load_dotenv()
 
@@ -91,6 +97,12 @@ class CallSession:
         # Task de streaming activo
         self.stream_task: asyncio.Task | None = None
 
+        # Grabación a disco — por segmentos (uno por cada tramo Answer→Pausa)
+        self.recording_segment: int = 0
+        self.rx_recorder: WavFileSink | None = None
+        self.tx_recorder: WavFileSink | None = None
+        self.current_segment_paths: tuple | None = None  # (rx, tx, all) del segmento abiert
+
     def activate_streaming(self, agent_id: str, customer_information: dict) -> None:
         """
         Activa el envío de audio a SocketSink y prepara las colas para consumo.
@@ -108,7 +120,9 @@ class CallSession:
         self.rx_sink = SocketSink(self.rx_queue)
         self.tx_sink = SocketSink(self.tx_queue)
 
-    def deactivate_streaming(self) -> None:
+        self._start_recording_segment()
+
+    def deactivate_streaming(self) -> tuple | None:
         """
         Desactiva el streaming: redirige el audio a NullSink(), detiene los
         consumidores activos enviando un centinela None a las colas y cambia
@@ -128,13 +142,64 @@ class CallSession:
             self.stream_task.cancel()
             self.stream_task = None
 
-    def signal_hangup(self) -> None:
+        return self._close_recording_segment()
+
+    def signal_hangup(self) -> tuple | None:
         """
         Señala el fin definitivo de la llamada (ejecutado en el bloque finally
         cuando la conexión TCP física de AudioSocket se desconecta).
         """
-        self.deactivate_streaming()
+        finished_segment = self.deactivate_streaming()
         self.state = "finished"
+        return finished_segment
+
+    def _on_segment_merge_done(self, task: asyncio.Task, call_uuid: str, all_path: str) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logging.error(f"{call_uuid} - Error al fusionar {all_path}: {exc}")
+        else:
+            logging.info(f"{call_uuid} - Segmento fusionado correctamente: {all_path}")
+
+    def _start_recording_segment(self) -> None:
+        self.recording_segment += 1
+        rx_path, tx_path, all_path = build_recording_paths(
+            self.call_uuid, self.recording_segment
+        )
+        self.rx_recorder = WavFileSink(rx_path)
+        self.tx_recorder = WavFileSink(tx_path)
+        self.current_segment_paths = (rx_path, tx_path, all_path)
+
+    def _close_recording_segment(self) -> tuple | None:
+        """
+        Cierra los .wav mono del segmento activo y devuelve sus rutas para
+        que el llamador dispare el merge estéreo. Devuelve None si no había
+        ningún segmento abierto (p. ej. llamada nunca contestada, o ya en pausa).
+        """
+        if self.rx_recorder is None and self.tx_recorder is None:
+            return None
+
+        if self.rx_recorder:
+            self.rx_recorder.close()
+            self.rx_recorder = None
+        if self.tx_recorder:
+            self.tx_recorder.close()
+            self.tx_recorder = None
+        
+        paths = self.current_segment_paths
+        self.current_segment_paths = None
+
+        # Disparar el merge aquí mismo — sin importar qué servidor
+        # (control o audio) fue quien cerró el segmento.
+        if paths:
+            rx_path, tx_path, all_path = paths
+            task = asyncio.create_task(merge_stereo(rx_path, tx_path, all_path))
+            task.add_done_callback(
+                lambda t, uuid=self.call_uuid, ap=all_path: self._on_segment_merge_done(t, uuid, ap)
+            )
+
+        return paths
 
 
 # ---------------------------------------------------------------------------

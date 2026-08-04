@@ -257,7 +257,7 @@ async def stream_audio_live(ws, queue: asyncio.Queue, direction: str, CALL_ID: s
                 sequence_counter[0] += 1
 
             chunk_number += 1
-            logging.debug(f"{CALL_ID} - [{direction}] Sequence: {sequence}, Chunk: {chunk_number}")
+            # logging.debug(f"{CALL_ID} - [{direction}] Sequence: {sequence}, Chunk: {chunk_number}")
 
             await send_media_event(ws, CALL_ID, direction, sequence, round(time_elapsed, 3), chunk)
             time_elapsed += FRAME_DURATION
@@ -308,18 +308,22 @@ async def run_both_live(session) -> None:
         await ws.close()
         return
 
-    await asyncio.gather(
-        stream_audio_live(
-            ws, session.rx_queue, dir_rx, CALL_ID,
-            session.sequence_counter, session.sequence_lock
-        ),
-        stream_audio_live(
-            ws, session.tx_queue, dir_tx, CALL_ID,
-            session.sequence_counter, session.sequence_lock
-        ),
-    )
-
-    await send_stop_event(ws, CALL_ID)
+    logging.info(f"{CALL_ID} - [LIVE] Waiting on gather...")
+    
+    try:
+        await asyncio.gather(
+            stream_audio_live(ws, session.rx_queue, dir_rx, CALL_ID, session.sequence_counter, session.sequence_lock),
+            stream_audio_live(ws, session.tx_queue, dir_tx, CALL_ID, session.sequence_counter, session.sequence_lock),
+        )
+    except asyncio.CancelledError:
+        logging.warning(f"{CALL_ID} - [LIVE] Cancelado externamente, igual se enviará stop event.")
+    finally:
+        # shield evita que un cancel() externo interrumpa este cleanup a medias
+        try:
+            await asyncio.shield(send_stop_event(ws, CALL_ID))
+        except Exception as e:
+            logging.error(f"{CALL_ID} - [LIVE] Error enviando stop event: {e}")
+            
     await ws.close()
     logging.info(f"{CALL_ID} - [LIVE] WebSocket connection closed correctly.")
 

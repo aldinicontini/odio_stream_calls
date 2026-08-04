@@ -23,7 +23,7 @@ async def send_connected_event(ws):
         logging.info(f"connected_event send: {encoded}")
 
         try:
-            return await wait_fot_ack(ws)
+            return await wait_for_ack(ws)
         except asyncio.TimeoutError:
             logging.warning("Timeout waiting for response to connected_event")
             return None
@@ -32,17 +32,6 @@ async def send_connected_event(ws):
 
 
 async def send_start_event(ws, CALL_ID, custom_parameters):
-    fields_to_remove = [
-        "customerPhoneNumber",
-        "lead_id",
-        "caller_code",
-        "recording_name",
-        "uniqueid2",
-        "event_date"
-    ]
-    for field in fields_to_remove:
-        custom_parameters.pop(field, None)
-
     start_event = {
         "event": "Start",
         "streamSid": CALL_ID,
@@ -51,15 +40,15 @@ async def send_start_event(ws, CALL_ID, custom_parameters):
         }
     }
     encoded = json.dumps(start_event)
-    logging.info(f"Start Event send: {encoded}")
+    logging.info(f"Sending start Event: {encoded}")
 
     try:
         await ws.send(encoded)
 
         try:
-            return await wait_fot_ack(ws)
+            return await wait_for_ack(ws)
         except asyncio.TimeoutError:
-            logging.warning("Timeout waiting for response to connected_event")
+            logging.warning("Timeout waiting for response to start_event")
             return None
     except Exception as e:
         logging.error(f"Error while trying to send start event: {encoded} {e}")
@@ -99,7 +88,7 @@ async def send_stop_event(ws, CALL_ID):
         logging.error(f"Error while trying to send stop event: {e}")
 
 
-async def wait_fot_ack(ws):
+async def wait_for_ack(ws):
     try:
         ack = await asyncio.wait_for(ws.recv(), timeout=5)
         logging.info(f"ACK received: {ack}")

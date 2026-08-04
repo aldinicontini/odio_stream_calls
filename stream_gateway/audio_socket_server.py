@@ -67,11 +67,15 @@ async def handle_client(reader, writer):
             elif ptype == PKT_TYPE_AUDIO_RX:
                 if session is not None:
                     session.rx_sink.write(payload)
+                    if session.rx_recorder:
+                        session.rx_recorder.write(payload)
                     bytes_rx += len(payload)
 
             elif ptype == PKT_TYPE_AUDIO_TX:
                 if session is not None:
                     session.tx_sink.write(payload)
+                    if session.tx_recorder:
+                        session.tx_recorder.write(payload)
                     bytes_tx += len(payload)
 
             elif ptype == PKT_TYPE_HANGUP:
