@@ -201,7 +201,12 @@ class CallSession:
         # (control o audio) fue quien cerró el segmento.
         if paths:
             rx_path, tx_path, all_path = paths
-            task = asyncio.create_task(merge_stereo(rx_path, tx_path, all_path))
+
+            if "custom" in self.call_uuid.lower():
+                task = asyncio.create_task(merge_stereo(rx_path, tx_path, all_path))
+            else:
+                task = asyncio.create_task(merge_stereo(tx_path, rx_path, all_path))
+
             self._pending_merge_task = task
             task.add_done_callback(
                 lambda t, uuid=self.call_uuid, ap=all_path: self._on_segment_merge_done(t, uuid, ap)

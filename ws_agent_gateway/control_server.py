@@ -33,7 +33,7 @@ import ssl
 import websockets
 from http import HTTPStatus
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timezone
 
 from utils.app_debugger import init_debugger
 from utils.socket_utils import ensure_single_instance
@@ -61,6 +61,8 @@ ODIO_MOMENT_BUCKET      = os.getenv("ODIO_MOMENT_BUCKET", "138")
 
 LOG_FILE = os.getenv("LOG_FILE_CONNECTIONS", "audiosocket.log")
 logger = init_debugger(LOG_FILE)
+
+# AGENT_ALLOWED = ['Aldo', ]
 
 
 
@@ -186,7 +188,7 @@ async def _handle_answer(ws, msg: dict, peer: tuple) -> None:
     logger.info(f"[CONTROL] ANSWER callid={callid} agent={agent} from {peer}")
 
     ## default values and current datetime
-    customer_information["callTime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    customer_information["callTime"] =  datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     if "custom" in callid.lower():
         customer_information["callType"] = "inbound"
     else:
@@ -253,6 +255,7 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
             logger.error(f"[CONTROL] Pending merge task failed for callid={callid}: {exc}")
 
     if not session.last_all_path:
+        logger.warning(f"[CONTROL] No merged recording found for callid={callid}")
         await _error(ws, "NO_RECORDING", f"No merged recording found for callid='{callid}'")
         return
 
@@ -266,18 +269,23 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
     payload = {
         "unique_id": callid,
         "recording_url": public_url,
-        "call_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "call_time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     }
 
     # Si la solicitud incluyó un dict de metadata adicional o payload extra
     if isinstance(msg.get("metadata"), dict):
         payload.update(msg["metadata"])
+
+
+    # Convertir a array con el payload en la posición 0
+    data = [payload]
         
     try:
-        status_code, resp_data = await send_recording_metadata(payload)
+        status_code, resp_data = await send_recording_metadata(data)
         logger.info(
             f"[CONTROL] Metadata sent to OdioIQ for callid={callid}: "
             f"status={status_code}, response={resp_data}"
+            # f"payload sent: {data}"
         )
         await _send(ws, {
             "type": "ACK",

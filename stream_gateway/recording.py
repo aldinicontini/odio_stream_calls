@@ -123,7 +123,7 @@ def build_recording_paths(call_uuid: str, segment: int) -> tuple[str, str, str]:
 
 def _merge_stereo_sync(rx_path: str, tx_path: str, all_path: str) -> None:
     """Combina rx/tx mono en un wav estéreo, bloqueante (para ejecutarse en un thread aparte)."""
-    logging.info(f"Starting merge of {rx_path} + {tx_path} → {all_path} in recordings thread")
+    # logging.info(fURL for calli"Starting merge of {rx_path} + {tx_path} → {all_path} in recordings thread")
     with wave.open(rx_path, "rb") as rx_wf:
         rx_raw = rx_wf.readframes(rx_wf.getnframes())
     with wave.open(tx_path, "rb") as tx_wf:

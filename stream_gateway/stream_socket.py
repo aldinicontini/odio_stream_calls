@@ -165,7 +165,7 @@ async def run_both(audio_file, test_flag):
 
         start = await send_start_event(ws, CALL_ID, customer_information)
         if not start or not start.get("success"):
-            logging.error(f"{CALL_ID} - Failed to send start event.")
+            logging.error(f"{CALL_ID} - Failed to send start event. Agent: {customer_information.get('agentId', '')}")
             return
 
         sequence_counter = [0]
@@ -206,7 +206,7 @@ async def run_both(audio_file, test_flag):
 
         start_ns = await send_start_event(ws_ns, CALL_ID, customer_information_inbound)
         if not start_ns or not start_ns.get("success"):
-            logging.error(f"INBOUND {CALL_ID} - Failed to send start event.")
+            logging.error(f"INBOUND {CALL_ID} - Failed to send start event. Agent: {customer_information_inbound.get('agentId', '')}")
             return
 
         sequence_counter_ns = [0]
@@ -298,15 +298,16 @@ async def run_both_live(session) -> None:
 
     connect = await send_connected_event(ws)
     if not connect or not connect.get("success"):
-        logging.error(f"{CALL_ID} - [LIVE] Failed to send connected event.")
+        logging.error(f"{CALL_ID} - [LIVE] Failed to send connected event. Agent: {session.agent_id}")
         await ws.close()
         return
 
     start = await send_start_event(ws, CALL_ID, customer_information)
     if not start or not start.get("success"):
-        logging.error(f"{CALL_ID} - [LIVE] Failed to send start event.")
+        logging.error(f"{CALL_ID} - [LIVE] Failed to send start event. Agent: {session.agent_id}")
         await ws.close()
         return
+    logging.info(f"{CALL_ID} - [LIVE] Success to send start event. Agent: {session.agent_id}")
 
     logging.info(f"{CALL_ID} - [LIVE] Waiting on gather...")
     
