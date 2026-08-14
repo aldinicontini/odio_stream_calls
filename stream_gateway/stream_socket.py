@@ -10,6 +10,7 @@ from stream_gateway.socket_connection import ws_connection, ws_keepalive
 from stream_gateway.odio_socket import send_connected_event, send_start_event, send_stop_event, send_media_event
 from utils.custom_information import get_customer_information
 from utils.app_debugger import init_debugger
+from utils.user_flters import _is_agent_allowed
 
 load_dotenv()
 
@@ -271,6 +272,13 @@ async def stream_audio_live(ws, queue: asyncio.Queue, direction: str, CALL_ID: s
 async def run_both_live(session) -> None:
     CALL_ID = session.call_uuid
     customer_information = dict(session.customer_information)
+
+    if not _is_agent_allowed(session.agent_id):
+        logging.info(
+            f"{CALL_ID} - [LIVE] Agent '{session.agent_id}' is NOT allowed in AGENT_ALLOWED. "
+            f"Bypassing remote live stream."
+        )
+        return
 
     if "custom" in CALL_ID.lower():
         call_direction = "inbound"

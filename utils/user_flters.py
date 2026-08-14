@@ -24,6 +24,8 @@ def _is_agent_allowed(agent: str) -> bool:
     """
     if not AGENT_ALLOWED:
         return True
+    if not agent or not isinstance(agent, str):
+        return False
     return agent.strip().lower() in AGENT_ALLOWED
 
 def _is_tenant_allowed(tenant: str) -> bool:
