@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 
 from utils.app_debugger import init_debugger
 from utils.socket_utils import ensure_single_instance
+from utils.user_flters import _is_agent_allowed
 from stream_gateway.session import sessions, SocketSink
 from stream_gateway.odio_metadata import send_recording_metadata, OdioMetadataError
 from stream_gateway.recording import build_public_recording_url
@@ -61,8 +62,6 @@ ODIO_MOMENT_BUCKET      = os.getenv("ODIO_MOMENT_BUCKET", "138")
 
 LOG_FILE = os.getenv("LOG_FILE_CONNECTIONS", "audiosocket.log")
 logger = init_debugger(LOG_FILE)
-
-# AGENT_ALLOWED = ['Aldo', ]
 
 
 
@@ -99,9 +98,6 @@ def _on_stream_done(task: asyncio.Task) -> None:
         logger.exception(f"[CONTROL] Streaming task raised an exception: {exc}")
 
 
-# ---------------------------------------------------------------------------
-# Handlers de mensajes
-# ---------------------------------------------------------------------------
 
 async def _validate_customer_information(ws, customer_information: dict) -> bool:
     """Valida los campos requeridos y vacíos de customer_information."""
