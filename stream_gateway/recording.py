@@ -165,6 +165,14 @@ def _merge_stereo_sync(rx_path: str, tx_path: str, all_path: str) -> None:
         out_wf.setframerate(SAMPLE_RATE)
         out_wf.writeframes(stereo_bytes)
 
+    # Una vez fusionados exitosamente, los mono rx/tx ya no son necesarios.
+    for mono_path in (rx_path, tx_path):
+        try:
+            os.remove(mono_path)
+            logging.info(f"Archivo mono eliminado tras la fusión: {mono_path}")
+        except Exception:
+            logging.info(f"No se pudo borrar {mono_path} tras la fusión")
+
 
 async def merge_stereo(rx_path: str, tx_path: str, all_path: str) -> None:
     """Combina rx/tx mono en un wav estéreo, sin bloquear el event loop."""
