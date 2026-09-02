@@ -211,6 +211,7 @@ async def _handle_hangup(ws, msg: dict, peer: tuple) -> None:
 
     session = sessions.get(callid)
     if session is None:
+        logger.warning(f"[CONTROL] HANGUP for unknown callid={callid} from {peer}")
         await _error(ws, "NOT_FOUND", f"Session '{callid}' not found")
         return
 
@@ -228,11 +229,13 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
     """
     callid = msg.get("callid")
     if not callid:
+        logger.warning(f"[CONTROL] SEND_RECORDING missing callid from {peer}: {msg}")
         await _error(ws, "MISSING_FIELDS", "callid is required")
         return
 
     session = sessions.get(callid)
     if session is None:
+        logger.warning(f"[CONTROL] SEND_RECORDING for unknown callid={callid} from {peer}")
         await _error(ws, "NOT_FOUND", f"Session '{callid}' not found")
         return
 
@@ -244,14 +247,14 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
 
     # Si hay una tarea de merge pendiente, esperar a que finalice
     if session._pending_merge_task and not session._pending_merge_task.done():
-        logger.info(f"[CONTROL] Waiting for stereo merge task for callid={callid}...")
+        logger.info(f"[CONTROL] SEND_RECORDING Waiting for stereo merge task for callid={callid}...")
         try:
             await session._pending_merge_task
         except Exception as exc:
-            logger.error(f"[CONTROL] Pending merge task failed for callid={callid}: {exc}")
+            logger.error(f"[CONTROL] SEND_RECORDING Pending merge task failed for callid={callid}: {exc}")
 
     if not session.last_all_path:
-        logger.warning(f"[CONTROL] No merged recording found for callid={callid}")
+        logger.warning(f"[CONTROL] SEND_RECORDING No merged recording found for callid={callid}")
         await _error(ws, "NO_RECORDING", f"No merged recording found for callid='{callid}'")
         return
 
@@ -260,7 +263,7 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
         await _error(ws, "CONFIG_ERROR", "RECORDING_PUBLIC_BASE_URL is not configured")
         return
 
-    logger.info(f"[CONTROL] Public URL for callid={callid}: {public_url}")
+    logger.info(f"[CONTROL] SEND_RECORDING Public URL for callid={callid}: {public_url}")
 
     payload = {
         "unique_id": callid,
@@ -277,9 +280,10 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
     data = [payload]
         
     try:
+        logger.info(f"[CONTROL] SEND_RECORDING Sending metadata to OdioIQ for callid={callid}: {data}")
         status_code, resp_data = await send_recording_metadata(data)
         logger.info(
-            f"[CONTROL] Metadata sent to OdioIQ for callid={callid}: "
+            f"[CONTROL] SEND_RECORDING Metadata sent to OdioIQ for callid={callid}: "
             f"status={status_code}, response={resp_data}"
             # f"payload sent: {data}"
         )
@@ -291,12 +295,12 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
             "response": resp_data
         })
         sessions.pop(callid, None)
-        logger.info(f"[CONTROL] Session '{callid}' successfully finalized and popped from memory.")
+        logger.info(f"[CONTROL] SEND_RECORDING Session '{callid}' successfully finalized and popped from memory.")
     except OdioMetadataError as exc:
-        logger.error(f"[CONTROL] OdioMetadataError for callid={callid}: {exc}")
+        logger.error(f"[CONTROL] SEND_RECORDING OdioMetadataError for callid={callid}: {exc}")
         await _error(ws, "METADATA_ERROR", str(exc))
     except Exception as exc:
-        logger.exception(f"[CONTROL] Unexpected error sending metadata for callid={callid}: {exc}")
+        logger.exception(f"[CONTROL] SEND_RECORDING Unexpected error sending metadata for callid={callid}: {exc}")
         await _error(ws, "SERVER_ERROR", f"Error sending recording metadata: {exc}")
 
 
