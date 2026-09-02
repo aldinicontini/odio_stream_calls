@@ -41,6 +41,7 @@ from utils.user_flters import _is_agent_allowed
 from stream_gateway.session import sessions, SocketSink
 from stream_gateway.odio_metadata import send_recording_metadata, OdioMetadataError
 from stream_gateway.recording import build_public_recording_url
+from stream_gateway import activity_monitor
 
 load_dotenv()
 
@@ -89,13 +90,16 @@ async def _error(ws, code: str, message: str) -> None:
 # Callback de task completado — captura errores silenciosos
 # ---------------------------------------------------------------------------
 
-def _on_stream_done(task: asyncio.Task) -> None:
+def _on_stream_done(task: asyncio.Task, call_uuid: str | None = None) -> None:
     try:
         task.result()
     except asyncio.CancelledError:
         pass
     except Exception as exc:
         logger.exception(f"[CONTROL] Streaming task raised an exception: {exc}")
+        activity_monitor.record_event_by_uuid(call_uuid, "stream_task_error", detail=str(exc))
+        return
+    activity_monitor.record_event_by_uuid(call_uuid, "stream_task_done")
 
 
 
@@ -195,7 +199,7 @@ async def _handle_answer(ws, msg: dict, peer: tuple) -> None:
 
     # Lanzar streaming como task independiente — no bloquea el control server
     task = asyncio.create_task(run_both_live(session))
-    task.add_done_callback(_on_stream_done)
+    task.add_done_callback(lambda t: _on_stream_done(t, callid))
     session.stream_task = task
 
     await _ack(ws, callid)
@@ -217,6 +221,7 @@ async def _handle_hangup(ws, msg: dict, peer: tuple) -> None:
     logger.info(f"[CONTROL] Manual HANGUP callid={callid} from {peer}")
     # Redirigir audio a NullSink, detener consumidores de audio y mantener la conexión TCP
     session.deactivate_streaming()
+    activity_monitor.record_event(session, "manual_hangup")
     await _ack(ws, callid)
 
 
@@ -290,13 +295,17 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
             "recording_url": public_url,
             "response": resp_data
         })
+        activity_monitor.record_event(session, "send_recording_ok", detail=public_url)
+        activity_monitor.remove_live(callid)
         sessions.pop(callid, None)
         logger.info(f"[CONTROL] Session '{callid}' successfully finalized and popped from memory.")
     except OdioMetadataError as exc:
         logger.error(f"[CONTROL] OdioMetadataError for callid={callid}: {exc}")
+        activity_monitor.record_event(session, "send_recording_error", detail=str(exc))
         await _error(ws, "METADATA_ERROR", str(exc))
     except Exception as exc:
         logger.exception(f"[CONTROL] Unexpected error sending metadata for callid={callid}: {exc}")
+        activity_monitor.record_event(session, "send_recording_error", detail=str(exc))
         await _error(ws, "SERVER_ERROR", f"Error sending recording metadata: {exc}")
 
 

@@ -23,6 +23,7 @@ load_dotenv()
 from utils.app_debugger import init_debugger
 from stream_gateway.audio_socket_server import start_audio_server
 from ws_agent_gateway.control_server import start_control_server
+from stream_gateway.activity_monitor import start_snapshot_loop
 
 # Initialize logging singleton
 LOG_FILE = os.getenv("LOG_FILE_CONNECTIONS", "audiosocket.log")
@@ -40,10 +41,13 @@ async def main() -> None:
     logger.info("Starting event-driven audio server (main.py)")
     logger.info("=" * 60)
 
-    # Concurrently execute audio streaming worker and WebSocket agent control servers
+    # Concurrently execute audio streaming worker and WebSocket agent control servers.
+    # start_snapshot_loop() es un no-op inmediato si ACTIVITY_MONITOR_ENABLED=false
+    # (default) — no altera el comportamiento de los dos servidores existentes.
     await asyncio.gather(
         start_audio_server(),
         start_control_server(),
+        start_snapshot_loop(),
     )
 
 

@@ -12,6 +12,7 @@ import os
 import time
 from dotenv import load_dotenv
 from stream_gateway.recording import WavFileSink, build_recording_paths, merge_stereo
+from stream_gateway import activity_monitor
 from utils.app_debugger import init_debugger
 
 
@@ -109,11 +110,18 @@ class CallSession:
         self.last_all_path: str | None = None
         self._pending_merge_task: asyncio.Task | None = None
 
+        # --- Visibilidad/monitoreo (aditivo, sin impacto funcional) ---
+        self.answered_at: float | None = None
+
     def activate_streaming(self, agent_id: str, customer_information: dict) -> None:
         """
         Activa el envío de audio a SocketSink y prepara las colas para consumo.
         Permite reanudar la sesión si fue pausada anteriormente.
         """
+        _monitor_event = "resumed" if self.answered_at is not None else "answered"
+        if self.answered_at is None:
+            self.answered_at = time.time()
+
         self.customer_information = customer_information
         self.agent_id = agent_id
         self.state = "answered"
@@ -127,6 +135,9 @@ class CallSession:
         self.tx_sink = SocketSink(self.tx_queue)
 
         self._start_recording_segment()
+
+        activity_monitor.record_event(self, _monitor_event)
+        activity_monitor.upsert_live(self)
 
     def deactivate_streaming(self) -> tuple | None:
         """
@@ -148,7 +159,10 @@ class CallSession:
             self.stream_task.cancel()
             self.stream_task = None
 
-        return self._close_recording_segment()
+        segment = self._close_recording_segment()
+        activity_monitor.record_event(self, "stream_deactivated")
+        activity_monitor.upsert_live(self)
+        return segment
 
     def signal_hangup(self) -> tuple | None:
         """
@@ -157,6 +171,8 @@ class CallSession:
         """
         finished_segment = self.deactivate_streaming()
         self.state = "finished"
+        activity_monitor.record_event(self, "finished")
+        activity_monitor.upsert_live(self)
         return finished_segment
 
     def _on_segment_merge_done(self, task: asyncio.Task, call_uuid: str, all_path: str) -> None:
@@ -234,7 +250,11 @@ def cleanup_stale_sessions(max_age_seconds: int = SESSION_TTL_SECONDS) -> int:
         if (now - sess.created_at) > max_age_seconds
     ]
     for key in stale_keys:
+        sess = sessions.get(key)
         sessions.pop(key, None)
+        if sess is not None:
+            activity_monitor.record_event(sess, "ttl_expired")
+        activity_monitor.remove_live(key)
     if stale_keys:
         logging.info(f"Limpiadas {len(stale_keys)} sesiones obsoletas de la memoria: {stale_keys}")
     return len(stale_keys)

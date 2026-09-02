@@ -9,6 +9,7 @@ load_dotenv()
 from utils.app_debugger import init_debugger
 from utils.socket_utils import ensure_single_instance
 from stream_gateway.session import CallSession, SocketSink, sessions, cleanup_stale_sessions
+from stream_gateway import activity_monitor
 
 # ---------------------------------------------------------------------------
 # Configuración
@@ -64,6 +65,8 @@ async def handle_client(reader, writer):
                 session = CallSession(call_uuid)
                 sessions[call_uuid] = session
                 logging.info(f"Call UUID: {call_uuid} — session created (NullSink active)")
+                activity_monitor.record_event(session, "created")
+                activity_monitor.upsert_live(session)
 
             elif ptype == PKT_TYPE_AUDIO_RX:
                 if session is not None:
@@ -88,6 +91,7 @@ async def handle_client(reader, writer):
                         session.hangup_who = who_label
                         session.hangup_cause = cause
                         session.deactivate_streaming()
+                        activity_monitor.record_event(session, "tcp_hangup_signal")
                 logging.info(
                     f"Hangup received for {session.call_uuid if session else 'unknown'} "
                     f"— colgó: {who_label} — cause={payload[1] if len(payload) >= 2 else None} "
@@ -106,6 +110,9 @@ async def handle_client(reader, writer):
     finally:
         if session is not None:
             session.signal_hangup()
+            activity_monitor.record_event(
+                session, "connection_closed", bytes_rx=bytes_rx, bytes_tx=bytes_tx
+            )
             logging.info(
                 f"Finished call {session.call_uuid} "
                 f"— rx={bytes_rx}B tx={bytes_tx}B "

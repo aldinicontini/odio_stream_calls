@@ -4,3 +4,6 @@ panoramisk>=1.4.0
 pyVoIP>=1.6.5
 audioop-lts; python_version >= '3.13'
 
+# Monitoreo de actividades (visibilidad MySQL) — ver stream_gateway/activity_monitor.py
+aiomysql==0.2.0
+
