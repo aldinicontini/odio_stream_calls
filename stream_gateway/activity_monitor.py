@@ -275,6 +275,7 @@ _LIVE_UPSERT_SQL = """
 """
 
 _LIVE_DELETE_SQL = "DELETE FROM live_activities WHERE call_uuid = %s"
+_LIVE_PURGE_OTHER_PIDS_SQL = "DELETE FROM live_activities WHERE host_pid <> %s"
 
 
 def upsert_live(session) -> None:
@@ -413,6 +414,9 @@ async def start_snapshot_loop() -> None:
     logger.info(
         f"[MONITOR] Snapshot loop iniciado (cada {ACTIVITY_SNAPSHOT_INTERVAL}s)"
     )
+    # live_activities (MEMORY) sobrevive a reinicios de main.py: limpiar las
+    # filas huérfanas que dejó el proceso anterior.
+    await _execute(_LIVE_PURGE_OTHER_PIDS_SQL, (_HOST_PID,))
     while True:
         try:
             await _take_snapshot()
