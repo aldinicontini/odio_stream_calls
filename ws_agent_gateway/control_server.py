@@ -94,7 +94,8 @@ def _on_stream_done(task: asyncio.Task, call_uuid: str | None = None) -> None:
     try:
         task.result()
     except asyncio.CancelledError:
-        pass
+        # Cancelada por deactivate_streaming — ya registrado como stream_deactivated
+        return
     except Exception as exc:
         logger.exception(f"[CONTROL] Streaming task raised an exception: {exc}")
         activity_monitor.record_event_by_uuid(call_uuid, "stream_task_error", detail=str(exc))

@@ -363,6 +363,9 @@ async def _take_snapshot() -> None:
     pending_merges = 0
 
     for sess in sessions_snapshot:
+        # Refresca live_activities: colas y stream_task_alive solo se
+        # escribían en transiciones de estado y quedaban congelados.
+        upsert_live(sess)
         by_state[sess.state] = by_state.get(sess.state, 0) + 1
         try:
             rx_sizes.append(sess.rx_queue.qsize())
