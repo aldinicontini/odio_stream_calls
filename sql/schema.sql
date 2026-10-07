@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS live_activities (
 --   manual_hangup        Agente colgó desde el panel de control (WS)
 --   tcp_hangup_signal    Paquete HANGUP recibido en el socket AudioSocket
 --   finished             Conexión TCP de AudioSocket cerrada definitivamente
+--   connection_closed    Igual que finished, pero con bytes_rx/bytes_tx totales
 --   ttl_expired          Sesión purgada por cleanup_stale_sessions (⚠️ señal
 --                        de "sesión muerta": nunca llegó SEND_RECORDING)
 --   send_recording_ok    Metadata enviada a OdioIQ con éxito, sesión cerrada

@@ -305,9 +305,11 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
         logger.info(f"[CONTROL] SEND_RECORDING Session '{callid}' successfully finalized and popped from memory.")
     except OdioMetadataError as exc:
         logger.error(f"[CONTROL] SEND_RECORDING OdioMetadataError for callid={callid}: {exc}")
+        activity_monitor.record_event(session, "send_recording_error", detail=str(exc))
         await _error(ws, "METADATA_ERROR", str(exc))
     except Exception as exc:
         logger.exception(f"[CONTROL] SEND_RECORDING Unexpected error sending metadata for callid={callid}: {exc}")
+        activity_monitor.record_event(session, "send_recording_error", detail=str(exc))
         await _error(ws, "SERVER_ERROR", f"Error sending recording metadata: {exc}")
 
 

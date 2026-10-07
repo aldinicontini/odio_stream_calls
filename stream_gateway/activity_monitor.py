@@ -349,7 +349,7 @@ async def _measure_event_loop_lag() -> float | None:
         await asyncio.wait_for(fut, timeout=5)
     except asyncio.TimeoutError:
         return None
-    return max(0.0, (loop.time() - start) * 1000)
+    return round(max(0.0, (loop.time() - start) * 1000), 2)
 
 
 async def _take_snapshot() -> None:
@@ -384,8 +384,8 @@ async def _take_snapshot() -> None:
         by_state.get("finished", 0),
         max(rx_sizes) if rx_sizes else 0,
         max(tx_sizes) if tx_sizes else 0,
-        (sum(rx_sizes) / len(rx_sizes)) if rx_sizes else 0.0,
-        (sum(tx_sizes) / len(tx_sizes)) if tx_sizes else 0.0,
+        round(sum(rx_sizes) / len(rx_sizes), 2) if rx_sizes else 0.0,
+        round(sum(tx_sizes) / len(tx_sizes), 2) if tx_sizes else 0.0,
         active_tasks,
         pending_merges,
         len(asyncio.all_tasks()),
