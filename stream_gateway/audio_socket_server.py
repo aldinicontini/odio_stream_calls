@@ -8,7 +8,7 @@ load_dotenv()
 
 from utils.app_debugger import init_debugger
 from utils.socket_utils import ensure_single_instance
-from stream_gateway.session import CallSession, SocketSink, sessions, cleanup_stale_sessions
+from stream_gateway.session import CallSession, SocketSink, sessions
 from stream_gateway import activity_monitor
 
 # ---------------------------------------------------------------------------
@@ -54,7 +54,6 @@ async def handle_client(reader, writer):
     bytes_tx = 0
 
     logging.info(f"New StreamSocket connection from {peer}")
-    cleanup_stale_sessions()
 
     try:
         while True:

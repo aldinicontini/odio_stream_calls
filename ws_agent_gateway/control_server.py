@@ -9,6 +9,9 @@ Protocolo de mensajes (cliente → servidor):
 --------------------------------------------
   ANSWER  — El agente contestó una llamada.
   HANGUP  — El agente colgó manualmente.
+  SEND_RECORDING    — Right party contact: envía la grabación a Odio
+                      (se conserva RECORDING_MAX_AGE_SECONDS, 48h).
+  DISCARD_RECORDING — Sin right party contact: la grabación se borra ya.
   PING    — Keepalive del navegador.
 
 Protocolo de respuestas (servidor → cliente):
@@ -40,7 +43,7 @@ from utils.socket_utils import ensure_single_instance
 from utils.user_flters import _is_agent_allowed
 from stream_gateway.session import sessions, SocketSink
 from stream_gateway.odio_metadata import send_recording_metadata, OdioMetadataError
-from stream_gateway.recording import build_public_recording_url
+from stream_gateway.recording import build_public_recording_url, delete_recording_files
 from stream_gateway import activity_monitor
 
 load_dotenv()
@@ -195,8 +198,17 @@ async def _handle_answer(ws, msg: dict, peer: tuple) -> None:
     else:
         customer_information["callType"] = "outbound"
 
-    # Activar streaming mediante CallSession (NullSink → SocketSink)
-    session.activate_streaming(agent, customer_information)
+    # Activar grabación y, si el agente está permitido, streaming
+    # (NullSink → SocketSink). Sin consumidor las colas solo acumularían audio.
+    live = _is_agent_allowed(agent)
+    session.activate_streaming(agent, customer_information, live=live)
+
+    if not live:
+        await _ack(ws, callid)
+        logger.info(
+            f"[CONTROL] Agent '{agent}' not in AGENT_ALLOWED — recording only for callid={callid}"
+        )
+        return
 
     # Lanzar streaming como task independiente — no bloquea el control server
     task = asyncio.create_task(run_both_live(session))
@@ -314,6 +326,40 @@ async def _handle_send_recording(ws, msg: dict, peer: tuple) -> None:
         await _error(ws, "SERVER_ERROR", f"Error sending recording metadata: {exc}")
 
 
+async def _handle_discard_recording(ws, msg: dict, peer: tuple) -> None:
+    """
+    El agente indica que la llamada NO fue right party contact (buzón, etc.):
+    la grabación no se enviará a Odio, así que se borra del disco de inmediato.
+    """
+    callid = msg.get("callid")
+    if not callid:
+        await _error(ws, "MISSING_FIELDS", "callid is required")
+        return
+
+    session = sessions.pop(callid, None)
+    if session is None:
+        logger.warning(f"[CONTROL] DISCARD_RECORDING for unknown callid={callid} from {peer}")
+        await _error(ws, "NOT_FOUND", f"Session '{callid}' not found")
+        return
+
+    logger.info(f"[CONTROL] DISCARD_RECORDING request for callid={callid} from {peer}")
+
+    # Cerrar el segmento activo y esperar el merge para no dejar archivos a medias
+    if session.rx_recorder is not None or session.tx_recorder is not None:
+        session._close_recording_segment()
+    if session._pending_merge_task and not session._pending_merge_task.done():
+        try:
+            await session._pending_merge_task
+        except Exception as exc:
+            logger.error(f"[CONTROL] DISCARD_RECORDING Pending merge task failed for callid={callid}: {exc}")
+
+    removed = delete_recording_files(session.recording_files)
+    activity_monitor.record_event(session, "discard_recording", detail=f"{removed} files")
+    activity_monitor.remove_live(callid)
+    logger.info(f"[CONTROL] DISCARD_RECORDING callid={callid}: {removed} files removed")
+    await _ack(ws, callid)
+
+
 # ---------------------------------------------------------------------------
 # Handler principal de conexión de agente
 # ---------------------------------------------------------------------------
@@ -374,6 +420,9 @@ async def handle_agent(websocket) -> None:
 
             elif msg_type == "SEND_RECORDING":
                 await _handle_send_recording(websocket, msg, peer)
+
+            elif msg_type == "DISCARD_RECORDING":
+                await _handle_discard_recording(websocket, msg, peer)
 
             elif msg_type == "PING":
                 await _send(websocket, {"type": "PONG"})

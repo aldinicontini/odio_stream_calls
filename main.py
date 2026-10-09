@@ -24,6 +24,8 @@ from utils.app_debugger import init_debugger
 from stream_gateway.audio_socket_server import start_audio_server
 from ws_agent_gateway.control_server import start_control_server
 from stream_gateway.activity_monitor import start_snapshot_loop
+from stream_gateway.session import start_cleanup_loop
+from stream_gateway.recording import start_recording_sweep_loop
 
 # Initialize logging singleton
 LOG_FILE = os.getenv("LOG_FILE_CONNECTIONS", "audiosocket.log")
@@ -44,10 +46,14 @@ async def main() -> None:
     # Concurrently execute audio streaming worker and WebSocket agent control servers.
     # start_snapshot_loop() es un no-op inmediato si ACTIVITY_MONITOR_ENABLED=false
     # (default) — no altera el comportamiento de los dos servidores existentes.
+    # start_cleanup_loop() libera sesiones terminadas y borra grabaciones no
+    # enviadas; start_recording_sweep_loop() es el respaldo sobre el disco.
     await asyncio.gather(
         start_audio_server(),
         start_control_server(),
         start_snapshot_loop(),
+        start_cleanup_loop(),
+        start_recording_sweep_loop(),
     )
 
 

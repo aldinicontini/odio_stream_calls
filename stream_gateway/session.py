@@ -11,7 +11,9 @@ import asyncio
 import os
 import time
 from dotenv import load_dotenv
-from stream_gateway.recording import WavFileSink, build_recording_paths, merge_stereo
+from stream_gateway.recording import (
+    WavFileSink, build_recording_paths, merge_stereo, delete_recording_files,
+)
 from stream_gateway import activity_monitor
 from utils.app_debugger import init_debugger
 
@@ -21,8 +23,14 @@ logging = init_debugger(LOG_FILE)
 
 load_dotenv()
 
-AUDIO_QUEUE_MAXSIZE = int(os.getenv("AUDIO_QUEUE_MAXSIZE", "500"))
+# Buffer del live streaming a Odio: frames de 20 ms, 25 = 0.5 s por dirección.
+AUDIO_QUEUE_MAXSIZE = int(os.getenv("AUDIO_QUEUE_MAXSIZE", "25"))
+# "Dead time": segundos tras el fin de la llamada esperando SEND_RECORDING.
+# Pasado ese tiempo la sesión se libera y su grabación se borra del disco.
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "3600"))
+# Tope de seguridad para sesiones cuya conexión TCP nunca cerró.
+SESSION_MAX_AGE_SECONDS = int(os.getenv("SESSION_MAX_AGE_SECONDS", "14400"))
+SESSION_CLEANUP_INTERVAL = float(os.getenv("SESSION_CLEANUP_INTERVAL", "60"))
 
 
 
@@ -74,6 +82,7 @@ class CallSession:
     def __init__(self, call_uuid: str) -> None:
         self.call_uuid: str = call_uuid
         self.created_at: float = time.time()
+        self.finished_at: float | None = None
         self.state: str = "ringing"
 
         # Queues de audio — activas solo en estado "answered"
@@ -109,14 +118,22 @@ class CallSession:
         self.current_segment_paths: tuple | None = None  # (rx, tx, all) del segmento abierto
         self.last_all_path: str | None = None
         self._pending_merge_task: asyncio.Task | None = None
+        # Todos los archivos (rx/tx/all de cada segmento) creados por esta
+        # llamada, para poder borrarlos cuando ya no se necesiten.
+        self.recording_files: list[str] = []
 
         # --- Visibilidad/monitoreo (aditivo, sin impacto funcional) ---
         self.answered_at: float | None = None
 
-    def activate_streaming(self, agent_id: str, customer_information: dict) -> None:
+    def activate_streaming(self, agent_id: str, customer_information: dict,
+                           live: bool = True) -> None:
         """
         Activa el envío de audio a SocketSink y prepara las colas para consumo.
         Permite reanudar la sesión si fue pausada anteriormente.
+
+        Con live=False solo se graba a disco: las colas no reciben audio porque
+        no habrá ningún consumidor (agente fuera de AGENT_ALLOWED) y se
+        llenarían hasta AUDIO_QUEUE_MAXSIZE reteniendo memoria.
         """
         _monitor_event = "resumed" if self.answered_at is not None else "answered"
         if self.answered_at is None:
@@ -131,8 +148,9 @@ class CallSession:
         self.rx_queue = asyncio.Queue(maxsize=AUDIO_QUEUE_MAXSIZE)
         self.tx_queue = asyncio.Queue(maxsize=AUDIO_QUEUE_MAXSIZE)
 
-        self.rx_sink = SocketSink(self.rx_queue)
-        self.tx_sink = SocketSink(self.tx_queue)
+        if live:
+            self.rx_sink = SocketSink(self.rx_queue)
+            self.tx_sink = SocketSink(self.tx_queue)
 
         self._start_recording_segment()
 
@@ -150,10 +168,11 @@ class CallSession:
         self.state = "paused"
 
         for queue in (self.rx_queue, self.tx_queue):
-            try:
-                queue.put_nowait(None)
-            except (asyncio.QueueFull, AttributeError):
-                pass
+            # Vaciar antes del centinela: libera la memoria de los frames que
+            # nadie consumió y garantiza que el None quepa en la cola.
+            while not queue.empty():
+                queue.get_nowait()
+            queue.put_nowait(None)
 
         if self.stream_task and not self.stream_task.done():
             self.stream_task.cancel()
@@ -171,6 +190,7 @@ class CallSession:
         """
         finished_segment = self.deactivate_streaming()
         self.state = "finished"
+        self.finished_at = time.time()
         activity_monitor.record_event(self, "finished")
         activity_monitor.upsert_live(self)
         return finished_segment
@@ -193,6 +213,7 @@ class CallSession:
         self.rx_recorder = WavFileSink(rx_path)
         self.tx_recorder = WavFileSink(tx_path)
         self.current_segment_paths = (rx_path, tx_path, all_path)
+        self.recording_files.extend((rx_path, tx_path, all_path))
 
     def _close_recording_segment(self) -> tuple | None:
         """
@@ -240,22 +261,43 @@ sessions: dict[str, CallSession] = {}
 
 def cleanup_stale_sessions(max_age_seconds: int = SESSION_TTL_SECONDS) -> int:
     """
-    Elimina del diccionario global `sessions` aquellas sesiones que hayan
-    superado el tiempo máximo de vida (TTL), evitando fugas de memoria si
-    no se ejecutó el evento SEND_RECORDING.
+    Libera del diccionario global `sessions` las sesiones que ya no recibirán
+    SEND_RECORDING:
+      - llamadas terminadas hace más de `max_age_seconds` (dead time): su
+        grabación nunca se envió a Odio, así que también se borra del disco.
+      - sesiones cuya conexión TCP nunca cerró y superan SESSION_MAX_AGE_SECONDS.
     """
     now = time.time()
-    stale_keys = [
-        call_uuid for call_uuid, sess in sessions.items()
-        if (now - sess.created_at) > max_age_seconds
-    ]
-    for key in stale_keys:
-        sess = sessions.get(key)
-        sessions.pop(key, None)
-        if sess is not None:
-            activity_monitor.record_event(sess, "ttl_expired")
-        activity_monitor.remove_live(key)
-    if stale_keys:
-        logging.info(f"Limpiadas {len(stale_keys)} sesiones obsoletas de la memoria: {stale_keys}")
-    return len(stale_keys)
+    stale = []
+    for call_uuid, sess in sessions.items():
+        if sess.finished_at is not None:
+            if (now - sess.finished_at) > max_age_seconds:
+                stale.append((call_uuid, sess, True))
+        elif (now - sess.created_at) > SESSION_MAX_AGE_SECONDS:
+            stale.append((call_uuid, sess, False))
 
+    for call_uuid, sess, delete_files in stale:
+        sessions.pop(call_uuid, None)
+        activity_monitor.record_event(sess, "ttl_expired")
+        activity_monitor.remove_live(call_uuid)
+        if delete_files and sess.recording_files:
+            delete_recording_files(sess.recording_files)
+    if stale:
+        logging.info(
+            f"Limpiadas {len(stale)} sesiones obsoletas de la memoria: "
+            f"{[call_uuid for call_uuid, _, _ in stale]}"
+        )
+    return len(stale)
+
+
+async def start_cleanup_loop() -> None:
+    """
+    Ejecuta cleanup_stale_sessions() periódicamente. Antes solo corría al
+    llegar una llamada nueva, así que en horas sin tráfico nada se liberaba.
+    """
+    while True:
+        await asyncio.sleep(SESSION_CLEANUP_INTERVAL)
+        try:
+            cleanup_stale_sessions()
+        except Exception as exc:
+            logging.exception(f"Error limpiando sesiones obsoletas: {exc}")

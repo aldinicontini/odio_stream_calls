@@ -56,6 +56,10 @@ MYSQL_POOL_MAX = int(os.getenv("MYSQL_POOL_MAX", "5"))
 
 ACTIVITY_SNAPSHOT_INTERVAL = float(os.getenv("ACTIVITY_SNAPSHOT_INTERVAL", "15"))
 
+# Máximo de escrituras pendientes. Si MySQL se traba (p. ej. disco lleno) las
+# nuevas se descartan en vez de acumular tareas sin límite en el event loop.
+_MAX_PENDING_WRITES = int(os.getenv("ACTIVITY_MONITOR_MAX_PENDING", "500"))
+
 # Ventana mínima entre reintentos de conexión tras un fallo, para no
 # inundar logs ni reintentar en cada evento si MySQL está caído.
 _RETRY_BACKOFF_SECONDS = 30
@@ -91,6 +95,13 @@ def _spawn(coro) -> None:
     """Dispara una coroutine en segundo plano sin esperar su resultado.
     Mantiene una referencia fuerte a la task para que no sea recolectada
     por el garbage collector a mitad de ejecución (gotcha típico de asyncio)."""
+    if len(_background_tasks) >= _MAX_PENDING_WRITES:
+        coro.close()
+        _warn_throttled(
+            f"{len(_background_tasks)} escrituras de monitoreo pendientes — "
+            f"descartando nuevas (¿MySQL lento o caído?)"
+        )
+        return
     try:
         task = asyncio.create_task(coro)
     except RuntimeError:
@@ -366,7 +377,9 @@ async def _take_snapshot() -> None:
     for sess in sessions_snapshot:
         # Refresca live_activities: colas y stream_task_alive solo se
         # escribían en transiciones de estado y quedaban congelados.
-        upsert_live(sess)
+        # Las terminadas ya no cambian (se escribieron al pasar a finished).
+        if sess.state != "finished":
+            upsert_live(sess)
         by_state[sess.state] = by_state.get(sess.state, 0) + 1
         try:
             rx_sizes.append(sess.rx_queue.qsize())

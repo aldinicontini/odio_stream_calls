@@ -20,6 +20,12 @@ SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "8000"))
 SAMPLE_WIDTH = int(os.getenv("SAMPLE_WIDTH", "2"))
 CHANNELS = int(os.getenv("CHANNELS", "1"))
 
+# Retención de las grabaciones enviadas a Odio (SEND_RECORDING): 48h por
+# defecto. El barrido borra cualquier archivo sin modificar en este tiempo,
+# aunque el proceso se haya reiniciado y perdido las sesiones en memoria.
+RECORDING_MAX_AGE_SECONDS = int(os.getenv("RECORDING_MAX_AGE_SECONDS", "172800"))
+RECORDING_SWEEP_INTERVAL = float(os.getenv("RECORDING_SWEEP_INTERVAL", "600"))
+
 LOG_FILE = os.getenv("LOG_FILE_CONNECTIONS", "audiosocket.log")
 logging = init_debugger(LOG_FILE)
 
@@ -178,3 +184,64 @@ async def merge_stereo(rx_path: str, tx_path: str, all_path: str) -> None:
     """Combina rx/tx mono en un wav estéreo, sin bloquear el event loop."""
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _merge_stereo_sync, rx_path, tx_path, all_path)
+
+
+# ---------------------------------------------------------------------------
+# Limpieza de grabaciones en disco
+# ---------------------------------------------------------------------------
+
+def delete_recording_files(paths) -> int:
+    """Borra los archivos indicados que existan. Nunca lanza excepciones."""
+    removed = 0
+    for path in paths:
+        try:
+            os.remove(path)
+            removed += 1
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            logging.warning(f"No se pudo borrar la grabación {path}: {exc}")
+    return removed
+
+
+def _sweep_old_recordings_sync(max_age_seconds: int) -> int:
+    cutoff = time.time() - max_age_seconds
+    removed = 0
+    for root, dirs, files in os.walk(RECORDINGS_BASE_DIR, topdown=False):
+        for name in files:
+            path = os.path.join(root, name)
+            try:
+                if os.path.getmtime(path) < cutoff:
+                    os.remove(path)
+                    removed += 1
+            except FileNotFoundError:
+                pass
+            except Exception as exc:
+                logging.warning(f"No se pudo borrar la grabación {path}: {exc}")
+        # Quitar directorios de días ya vacíos y antiguos (nunca la raíz ni
+        # uno recién creado al que está por escribirse el primer archivo)
+        if root != RECORDINGS_BASE_DIR:
+            try:
+                if os.path.getmtime(root) < cutoff:
+                    os.rmdir(root)
+            except OSError:
+                pass
+    return removed
+
+
+async def start_recording_sweep_loop() -> None:
+    """
+    Barrido periódico de respaldo sobre RECORDINGS_BASE_DIR. Los archivos en
+    grabación se modifican continuamente, así que nunca superan el límite.
+    """
+    loop = asyncio.get_running_loop()
+    while True:
+        try:
+            removed = await loop.run_in_executor(
+                None, _sweep_old_recordings_sync, RECORDING_MAX_AGE_SECONDS
+            )
+            if removed:
+                logging.info(f"Barrido de grabaciones: {removed} archivos antiguos eliminados")
+        except Exception as exc:
+            logging.exception(f"Error en el barrido de grabaciones: {exc}")
+        await asyncio.sleep(RECORDING_SWEEP_INTERVAL)

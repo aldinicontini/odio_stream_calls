@@ -19,12 +19,14 @@ echo "============================================================"
 
 # 1. Matar proceso main.py o cualquier proceso que ocupe los puertos 9019 y 9020
 "$PYTHON_BIN" -c "
-import os, signal, subprocess
+import os, re, signal, subprocess
 
-# Matar procesos main.py
+# Matar solo el servidor (\"<python> main.py\", como lo lanzan este script y
+# cron_watchdog.sh). Un 'pgrep -f main.py' suelto también mataba cualquier
+# shell, editor o comando cuya línea contuviera el texto main.py.
 try:
-    cmd = 'pgrep -f main.py'
-    res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    pattern = '^' + re.escape('$PYTHON_BIN') + r' main\.py$'
+    res = subprocess.run(['pgrep', '-f', pattern], capture_output=True, text=True)
     my_pid = os.getpid()
     for line in res.stdout.strip().splitlines():
         if line.strip():

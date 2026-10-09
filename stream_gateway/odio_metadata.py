@@ -3,10 +3,15 @@ import json
 import asyncio
 import urllib.request
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor
 
 ODIO_METADATA_URL   = os.getenv("ODIO_METADATA_URL", "https://app.odioiq.com/odio/api/metadata")
 ODIO_METADATA_TOKEN = os.getenv("ODIO_METADATA_TOKEN", "")
 ODIO_HTTP_TIMEOUT   = float(os.getenv("ODIO_HTTP_TIMEOUT", "10"))
+
+# Pool propio: si OdioIQ responde lento, sus hilos no compiten con el pool por
+# defecto donde corren los merges de las grabaciones.
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="odio-metadata")
 
 
 class OdioMetadataError(Exception):
@@ -39,4 +44,4 @@ def _post_sync(payload):
 
 async def send_recording_metadata(payload):
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _post_sync, payload)
+    return await loop.run_in_executor(_executor, _post_sync, payload)

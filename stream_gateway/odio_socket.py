@@ -4,6 +4,8 @@ import time
 import os
 import json
 
+from websockets.exceptions import ConnectionClosed
+
 from utils.app_debugger import init_debugger
 
 LOG_FILE_CONNECTIONS = os.getenv('LOG_FILE_CONNECTIONS', 'connections.log')
@@ -70,6 +72,10 @@ async def send_media_event(ws, CALL_ID, DIRECTION, sequence, time_elapsed, chunk
 
     try:
         await ws.send(encoded)
+    except ConnectionClosed:
+        # Odio cerró la conexión: propagar para terminar el stream en vez de
+        # registrar un error por cada frame (50/s) hasta que cuelgue la llamada.
+        raise
     except Exception as e:
         logging.error(f"Error while trying to send media event: {e}")
 

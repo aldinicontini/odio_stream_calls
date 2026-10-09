@@ -31,7 +31,8 @@ async def ws_connection(url=WSS_ODIO_URL, cert_path=SSL_CERT_PATH, timeout=10.0)
     ssl_context = get_ssl_context(cert_path)
     try:
         ws = await asyncio.wait_for(
-            websockets.connect(url, ssl=ssl_context, max_size=None, ping_interval=None, ping_timeout=None),
+            websockets.connect(url, ssl=ssl_context, max_size=None, ping_interval=None, ping_timeout=None,
+                               close_timeout=3),
             timeout=timeout
         )
         return ws

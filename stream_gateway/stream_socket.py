@@ -27,6 +27,7 @@ logging = init_debugger(LOG_FILE_CONNECTIONS)
 CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '320'))  # 20ms de audio PCM 16-bit a 8kHz
 INACTIVITY_TIMEOUT = int(os.getenv('INACTIVITY_TIMEOUT', '30'))
 MONITORING_TIMEOUT = int(os.getenv('MONITORING_TIMEOUT', '15'))
+ODIO_STOP_TIMEOUT = float(os.getenv('ODIO_STOP_TIMEOUT', '3'))
 
 # Configuración de audio
 SAMPLE_RATE = int(os.getenv('SAMPLE_RATE', '8000'))
@@ -327,12 +328,13 @@ async def run_both_live(session) -> None:
     except asyncio.CancelledError:
         logging.warning(f"{CALL_ID} - [LIVE] Cancelado externamente, igual se enviará stop event.")
     finally:
-        # shield evita que un cancel() externo interrumpa este cleanup a medias
+        # Con tiempo acotado: si Odio no responde, la tarea no debe quedar
+        # colgada esperándolo (el cierre lo acota close_timeout de ws_connection).
         try:
-            await asyncio.shield(send_stop_event(ws, CALL_ID))
+            await asyncio.wait_for(send_stop_event(ws, CALL_ID), timeout=ODIO_STOP_TIMEOUT)
         except Exception as e:
             logging.error(f"{CALL_ID} - [LIVE] Error enviando stop event: {e}")
-            
+
     await ws.close()
     logging.info(f"{CALL_ID} - [LIVE] WebSocket connection closed correctly.")
 
