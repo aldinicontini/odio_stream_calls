@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -44,37 +45,30 @@ async def ping_local_server(host: str, port: int, timeout: float = 1.0, is_ws: b
 
 
 def get_pid_on_port(port: int, logger=None) -> int | None:
-    """Obtiene el PID del proceso que está usando el puerto TCP (usando ss, lsof o netstat)."""
+    """
+    Obtiene el PID del proceso que ESCUCHA en el puerto TCP (usando ss o lsof).
+
+    Solo sockets en LISTEN: un 'lsof -ti :<port>' sin filtro también devuelve
+    a los clientes conectados al puerto (Asterisk vía StreamSocket, Apache...),
+    y quien llama a esta función mata ese PID con SIGKILL.
+    """
     log = logger or default_logger
     try:
-        # 1. Intentar con ss
-        cmd = f"ss -ltnp | grep :{port}"
-        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        output = proc.stdout.strip()
-        if output:
-            import re
-            match = re.search(r'pid=(\d+)', output)
-            if match:
-                return int(match.group(1))
+        # 1. Intentar con ss (filtro exacto por puerto, sin encabezado)
+        proc = subprocess.run(
+            ["ss", "-ltnpH", f"sport = :{port}"], capture_output=True, text=True
+        )
+        match = re.search(r'pid=(\d+)', proc.stdout)
+        if match:
+            return int(match.group(1))
 
         # 2. Intentar con lsof
-        cmd = f"lsof -ti :{port}"
-        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        output = proc.stdout.strip()
-        if output:
-            pids = output.splitlines()
-            if pids:
-                return int(pids[0])
-
-        # 3. Intentar con netstat
-        cmd = f"netstat -tulpn 2>/dev/null | grep :{port}"
-        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        output = proc.stdout.strip()
-        if output:
-            import re
-            match = re.search(r'/(\d+)/', output)
-            if match:
-                return int(match.group(1))
+        proc = subprocess.run(
+            ["lsof", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"], capture_output=True, text=True
+        )
+        pids = proc.stdout.split()
+        if pids:
+            return int(pids[0])
     except Exception as e:
         log.error(f"[ERROR] No se pudo obtener el PID en el puerto {port}: {e}")
     return None

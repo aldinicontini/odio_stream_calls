@@ -40,11 +40,20 @@ try:
 except Exception as e:
     print(f'[WARN] Error al detener main.py: {e}')
 
-# Matar cualquier proceso en puertos 9019 y 9020
+# Liberar puertos 9019 y 9020 solo si los ocupa un main.py (nunca Asterisk,
+# Apache u otro servicio, aunque la búsqueda por puerto fallara)
 from utils.socket_utils import get_pid_on_port
 for port in [9019, 9020]:
     pid = get_pid_on_port(port)
     if pid and pid != os.getpid():
+        try:
+            with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                cmdline = f.read().replace(b'\\0', b' ').decode(errors='replace')
+        except Exception:
+            continue
+        if 'main.py' not in cmdline:
+            print(f'[WARN] Puerto {port} ocupado por PID {pid} ({cmdline.strip()}); no se mata')
+            continue
         try:
             os.kill(pid, signal.SIGKILL)
             print(f'[OK] Liberado puerto {port} (PID {pid})')
