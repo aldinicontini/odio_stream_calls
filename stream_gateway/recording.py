@@ -14,7 +14,8 @@ import asyncio
 from datetime import datetime
 from utils.app_debugger import init_debugger
 
-RECORDINGS_BASE_DIR = os.getenv("RECORDINGS_BASE_DIR", "recordings")
+# Partición dedicada a grabaciones; los directorios AAAA/MM/DD se crean al grabar.
+RECORDINGS_BASE_DIR = os.getenv("RECORDINGS_BASE_DIR", "/var/spool/asterisk/monitor/odio")
 RECORDING_PUBLIC_BASE_URL = os.getenv("RECORDING_PUBLIC_BASE_URL", "").rstrip("/")
 SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "8000"))
 SAMPLE_WIDTH = int(os.getenv("SAMPLE_WIDTH", "2"))
